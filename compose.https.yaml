@@ -1,0 +1,22 @@
+# Merge with compose.yaml for a public HTTPS endpoint.
+services:
+  gate:
+    environment:
+      SHELL_PUBLIC_URL: https://${SHELL_DOMAIN:?Set SHELL_DOMAIN in .env}
+  https:
+    image: caddy:2.11.7
+    restart: unless-stopped
+    environment:
+      SHELL_DOMAIN: ${SHELL_DOMAIN:?Set SHELL_DOMAIN in .env}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/container/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [backend]
+    depends_on:
+      gate:
+        condition: service_healthy
+volumes:
+  caddy-data:
+  caddy-config:

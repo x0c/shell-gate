@@ -1,0 +1,7 @@
+{
+  "name": "shell-gate-web-build",
+  "private": true,
+  "scripts": {"build": "esbuild external-auth.js --bundle --format=esm --minify --legal-comments=inline --outfile=../../internal/server/web/vendor/external-auth.js"},
+  "dependencies": {"@supabase/supabase-js": "2.105.0"},
+  "devDependencies": {"esbuild": "0.28.2"}
+}

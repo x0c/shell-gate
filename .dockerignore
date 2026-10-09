@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+.corral-pastes
+.openai
+node_modules
+data
+dist
+*.db
+*.ndjson
+.DS_Store
+__pycache__

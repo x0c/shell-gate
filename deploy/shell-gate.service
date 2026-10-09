@@ -1,0 +1,26 @@
+[Unit]
+Description=ShellGate terminal gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=shellgate
+Group=shellgate
+WorkingDirectory=/opt/shell-gate
+EnvironmentFile=/etc/shell-gate.env
+Environment=SHELL_DATA_DIR=/var/lib/shell-gate
+StateDirectory=shell-gate
+StateDirectoryMode=0700
+ExecStart=/opt/shell-gate/shell-gate serve
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

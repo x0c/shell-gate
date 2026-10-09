@@ -1,0 +1,78 @@
+#!/bin/bash
+# 仅由苏州受限桥接调用。每个 ShellGate Tab 一个受限的 Mac 系统睡眠租约；不依赖 ttyd
+# WebSocket，因而浏览器后台、断线和刷新都不会提前释放。异常浏览器退出由 8 小时上限兜底。
+set -euo pipefail
+
+readonly lease_seconds=28800
+readonly state_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/shell-gate/leases"
+
+usage() {
+  echo "usage: $0 acquire|release <32-char-lowercase-hex-tab-id>" >&2
+  exit 64
+}
+
+valid_id() {
+  [[ "$1" =~ ^[0-9a-f]{32}$ ]]
+}
+
+managed_pid() {
+  local pid="$1" expected_start="$2" current_start command
+  current_start="$(/bin/ps -p "$pid" -o lstart= 2>/dev/null | /usr/bin/xargs || true)"
+  command="$(/bin/ps -p "$pid" -o command= 2>/dev/null || true)"
+  [[ -n "$current_start" && "$current_start" == "$expected_start" && "$command" == *"/usr/bin/caffeinate -is -t ${lease_seconds}"* ]]
+}
+
+# 旧版只用了 -i，仍会进入 Maintenance Sleep；仅用于就地替换与释放该脚本自己创建的旧断言。
+legacy_pid() {
+  local pid="$1" expected_start="$2" current_start command
+  current_start="$(/bin/ps -p "$pid" -o lstart= 2>/dev/null | /usr/bin/xargs || true)"
+  command="$(/bin/ps -p "$pid" -o command= 2>/dev/null || true)"
+  [[ -n "$current_start" && "$current_start" == "$expected_start" && "$command" == *"/usr/bin/caffeinate -i -t ${lease_seconds}"* ]]
+}
+
+release() {
+  local id="$1" state_file="$state_dir/$1" pid expected_start
+  [[ -f "$state_file" ]] || return 0
+  read -r pid expected_start < "$state_file" || { /bin/rm -f "$state_file"; return 0; }
+  if managed_pid "$pid" "$expected_start" || legacy_pid "$pid" "$expected_start"; then
+    /bin/kill "$pid" || true
+  fi
+  /bin/rm -f "$state_file"
+  /bin/rmdir "$state_dir" 2>/dev/null || true
+}
+
+acquire() {
+  local id="$1" state_file="$state_dir/$1" pid started
+  /bin/mkdir -p "$state_dir"
+  /bin/chmod 700 "$state_dir"
+  if [[ -f "$state_file" ]]; then
+    read -r pid started < "$state_file" || true
+    if [[ -n "${pid:-}" && -n "${started:-}" ]]; then
+      if managed_pid "$pid" "$started"; then
+        return 0
+      fi
+      if legacy_pid "$pid" "$started"; then
+        /bin/kill "$pid" || true
+      fi
+    fi
+    /bin/rm -f "$state_file"
+  fi
+  /usr/bin/nohup /usr/bin/caffeinate -is -t "$lease_seconds" >/dev/null 2>&1 &
+  pid=$!
+  started="$(/bin/ps -p "$pid" -o lstart= 2>/dev/null | /usr/bin/xargs || true)"
+  if [[ -z "$started" ]] || ! managed_pid "$pid" "$started"; then
+    echo "无法创建睡眠租约" >&2
+    exit 1
+  fi
+  (umask 077; printf '%s %s\n' "$pid" "$started" > "$state_file")
+}
+
+[[ "$#" -eq 2 ]] || usage
+action="$1"
+id="$2"
+valid_id "$id" || usage
+case "$action" in
+  acquire) acquire "$id" ;;
+  release) release "$id" ;;
+  *) usage ;;
+esac

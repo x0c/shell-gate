@@ -1,0 +1,57 @@
+# Optional complete local stack. ttyd has no host-published port.
+services:
+  gate:
+    build:
+      context: .
+      args:
+        VERSION: ${SHELL_VERSION:-dev}
+    image: shell-gate:${SHELL_VERSION:-dev}
+    restart: unless-stopped
+    environment:
+      SHELL_LISTEN: 0.0.0.0:18765
+      SHELL_AUTH_MODE: local
+      SHELL_PUBLIC_URL: ${SHELL_PUBLIC_URL:-http://localhost:18765}
+      SHELL_ALLOWED_EMAILS: ${SHELL_ALLOWED_EMAILS:?Set SHELL_ALLOWED_EMAILS in .env}
+      SHELL_TTYD_URL: http://terminal:7681
+      SHELL_DATA_DIR: /data
+      SHELL_SESSION_TTL: ${SHELL_SESSION_TTL:-12h}
+      SHELL_NETMON_INTERVAL: ${SHELL_NETMON_INTERVAL:-15s}
+      SHELL_DEFAULT_PRESETS: ${SHELL_DEFAULT_PRESETS:-[]}
+    ports:
+      - "${SHELL_BIND_ADDRESS:-127.0.0.1}:${SHELL_PORT:-18765}:18765"
+    volumes:
+      - gate-data:/data
+    networks: [backend]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    depends_on:
+      terminal:
+        condition: service_healthy
+  terminal:
+    build:
+      context: .
+      dockerfile: deploy/container/Dockerfile.ttyd
+    restart: unless-stopped
+    init: true
+    environment:
+      SHELL: /bin/bash
+      COLORTERM: truecolor
+    volumes:
+      - terminal-home:/home/terminal
+    networks: [backend]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    healthcheck:
+      test: [CMD, curl, -fsS, -H, "X-Webauth-User: health@example.com", "http://127.0.0.1:7681/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+networks:
+  backend:
+volumes:
+  gate-data:
+  terminal-home:

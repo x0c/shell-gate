@@ -1,0 +1,10 @@
+# Upstream ttyd is GPL-3.0; it runs as a separate, unprivileged process.
+FROM tsl0922/ttyd:1.7.7
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10002 terminal && useradd --uid 10002 --gid terminal --create-home --shell /bin/bash terminal
+COPY deploy/container/terminal-shell /usr/local/bin/terminal-shell
+USER 10002:10002
+WORKDIR /home/terminal
+ENTRYPOINT ["ttyd", "-W", "-a", "-H", "X-Webauth-User", "-p", "7681", "-t", "rendererType=canvas", "/usr/local/bin/terminal-shell"]

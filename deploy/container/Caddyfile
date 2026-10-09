@@ -1,0 +1,3 @@
+{$SHELL_DOMAIN} {
+    reverse_proxy gate:18765
+}

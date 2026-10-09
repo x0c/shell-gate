@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# ttyd passes server-owned startup command fragments as positional arguments.
+set -euo pipefail
+cd "${HOME}"
+export SHELL="${SHELL:-/bin/bash}"
+export COLORTERM=truecolor
+if [[ "$#" -gt 0 ]]; then
+  exec "$SHELL" -lc "$*"
+fi
+exec "$SHELL" -li

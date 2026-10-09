@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>选路中…</title>
+  <style>
+    :root { --bg: #171819; --fg: #e8e7e3; --muted: #a09f99; --danger: #f0817a; }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; margin: 0; }
+    body {
+      min-height: 100svh; display: grid; place-items: center; padding: 32px;
+      background: var(--bg); color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+    }
+    main { text-align: center; max-width: 28rem; }
+    .brand { margin: 0; font: 400 1.25rem/1.3 ui-monospace, Menlo, monospace; letter-spacing: -0.04em; }
+    .status { margin: 16px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+    .status[data-err="1"] { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="brand">shell-gate</p>
+    <p id="status" class="status" role="status" aria-live="polite">正在选择更快的入口…</p>
+  </main>
+  <script type="module">
+    const EDGE_PREF_KEY = "shellgate_edge";
+    const PROBE_TIMEOUT_MS = 3000;
+
+    const statusEl = document.getElementById("status");
+    function show(text, isErr) {
+      statusEl.textContent = text || "";
+      statusEl.dataset.err = isErr ? "1" : "";
+    }
+
+    async function probeEdge(origin, timeoutMs) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+      const t0 = performance.now();
+      try {
+        const res = await fetch(origin + "/api/edge-probe", {
+          method: "GET",
+          mode: "cors",
+          cache: "no-store",
+          credentials: "omit",
+          signal: ctrl.signal,
+        });
+        if (!res.ok) return null;
+        return performance.now() - t0;
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function chooseEdge(edges) {
+      const pref = localStorage.getItem(EDGE_PREF_KEY);
+      if (pref && edges.some((e) => e.host === pref)) {
+        const ms = await probeEdge("https://" + pref, PROBE_TIMEOUT_MS);
+        if (ms != null) return pref;
+      }
+      const raced = await Promise.all(
+        edges.map(async (e) => {
+          const ms = await probeEdge(e.origin || "https://" + e.host, PROBE_TIMEOUT_MS);
+          return { host: e.host, ms };
+        })
+      );
+      let best = null;
+      for (const row of raced) {
+        if (row.ms == null) continue;
+        if (!best || row.ms < best.ms) best = row;
+      }
+      return best ? best.host : null;
+    }
+
+    async function main() {
+      const cfgRes = await fetch("/api/config", { credentials: "same-origin", cache: "no-store" });
+      if (!cfgRes.ok) {
+        show("无法加载选路配置", true);
+        return;
+      }
+      const cfg = await cfgRes.json();
+      const edges = Array.isArray(cfg.edges) ? cfg.edges : [];
+      if (!edges.length) {
+        location.replace("/");
+        return;
+      }
+      const host = await chooseEdge(edges);
+      if (!host) {
+        show("两侧入口均不可达，请稍后刷新重试", true);
+        return;
+      }
+      try {
+        localStorage.setItem(EDGE_PREF_KEY, host);
+      } catch (_) {}
+      location.replace("https://" + host + "/");
+    }
+
+    main().catch((e) => show(e?.message || "选路失败", true));
+  </script>
+</body>
+</html>

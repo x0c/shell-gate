@@ -1,0 +1,1998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+  <title>shellgate</title>
+  <style>
+    /* 外壳采用中性色；Terminal配色仍由父页统一广播。 */
+    :root {
+      --radius: 4px;
+      --space: 8px;
+      --app-height: 100dvh;
+      --app-offset: 0px;
+      --bg: #171819;
+      --fg: #e8e7e3;
+      --fg-rgb: 232, 231, 227;
+      --muted: #a09f99;
+      --accent: #d4c9af;
+      --accent-rgb: 212, 201, 175;
+      --accent-dim: #b4a688;
+      --danger: #f0817a;
+      --danger-rgb: 240, 129, 122;
+      --warn: #e8c479;
+      --line: rgba(var(--fg-rgb), 0.10);
+      --panel: #202122;
+      --tab: rgba(var(--fg-rgb), 0.04);
+      --tab-active: rgba(var(--fg-rgb), 0.06);
+      --top-bg: #202122;
+      --field-bg: rgba(0, 0, 0, 0.28);
+      --choice-bg: rgba(255, 255, 255, 0.02);
+      --term-bg: #171819;
+    }
+    :root[data-theme="light"] {
+      --bg: #fafaf8;
+      --fg: #24292f;
+      --fg-rgb: 36, 41, 47;
+      --muted: #686a6b;
+      --accent: #655b45;
+      --accent-rgb: 101, 91, 69;
+      --accent-dim: #655b45;
+      --danger: #c0341d;
+      --danger-rgb: 192, 52, 29;
+      --warn: #9a6700;
+      --line: rgba(var(--fg-rgb), 0.14);
+      --panel: #fafaf8;
+      --tab: rgba(var(--fg-rgb), 0.05);
+      --tab-active: rgba(var(--accent-rgb), 0.14);
+      --top-bg: #f0f0ed;
+      --field-bg: rgba(0, 0, 0, 0.035);
+      --choice-bg: rgba(0, 0, 0, 0.02);
+      --term-bg: #fafaf8;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    html {
+      height: var(--app-height);
+      overflow: hidden;
+    }
+    body {
+      position: fixed;
+      top: var(--app-offset);
+      left: 0;
+      right: 0;
+      width: 100%;
+      height: var(--app-height);
+      display: flex;
+      flex-direction: column;
+      color: var(--fg);
+      font-family: "SF Pro Text", "PingFang SC", "Helvetica Neue", system-ui, sans-serif;
+      background: var(--bg);
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+    /* 外壳承接菜单定位与抬层；行内 .top 才能 overflow:hidden 防高度Jitter，
+       否则绝对定位的下拉菜单会被裁掉，手机上点 ☰/⋯ 像没反应。 */
+    .top-shell {
+      position: relative;
+      z-index: 2;
+      flex-shrink: 0;
+    }
+    .top {
+      display: flex;
+      align-items: center;
+      flex-wrap: nowrap;
+      gap: 4px;
+      padding: 2px 6px;
+      /* 禁止顶栏因 Tab 增多换行或被滚动条撑高（overflow-x:auto 会把 visible 的 y 轴也变成 auto） */
+      overflow: hidden;
+      border-bottom: 1px solid var(--line);
+      background: var(--top-bg);
+    }
+    .tabs {
+      display: flex;
+      align-items: center;
+      flex-wrap: nowrap;
+      gap: 0;
+      /* 0% 基长才能在左右控件占满时把余量正确让给横向滚动，而不是把整行顶栏撑高 */
+      flex: 1 1 0%;
+      padding: 0 2px;
+      min-width: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      max-width: 160px;
+      padding: 0 8px;
+      height: 28px;
+      min-height: 28px;
+      flex-shrink: 0;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.78rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .tab.active {
+      color: var(--fg);
+      background: var(--tab-active);
+      box-shadow: inset 0 -2px var(--accent);
+      border-color: transparent;
+    }
+    .tab .title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      font-size: 0.74rem;
+    }
+    .tab .close {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 0.9rem;
+      line-height: 1;
+      padding: 0 0.1rem;
+      border-radius: var(--radius);
+    }
+    .tab .close:hover { color: var(--danger); background: rgba(var(--danger-rgb), 0.12); }
+    /* 右侧工具轨：主题 / Network / Presets；与左侧Launch器同属单行顶栏 */
+    .rail {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+      padding-left: 6px;
+      border-left: 1px solid var(--line);
+    }
+    /* Presets程序直接摆在顶栏，点一下即开，不再走「新开」弹窗二级菜单 */
+    .launchers {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      flex-shrink: 0;
+    }
+    .launch {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--fg);
+      border-radius: var(--radius);
+      padding: 0.18rem 0.48rem;
+      font-size: 0.76rem;
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .launch:hover:not(:disabled) {
+      color: var(--accent);
+      border-color: rgba(var(--accent-rgb), 0.4);
+    }
+    .launch:disabled { opacity: 0.5; cursor: default; }
+    .launch.primary {
+      color: var(--accent);
+      border-color: rgba(var(--accent-rgb), 0.35);
+      font-weight: 500;
+    }
+    /* 多上游Machine选择：形态与Presets按钮一致（描边 + 透明底，不用渐变填充），
+       只有一台Machine时整个容器不渲染，单机部署界面零变化。 */
+    .machines {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      flex-shrink: 0;
+      padding-right: 6px;
+      border-right: 1px solid var(--line);
+    }
+    .mach {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      border-radius: var(--radius);
+      padding: 0.18rem 0.48rem;
+      font-size: 0.76rem;
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .mach:hover { color: var(--fg); border-color: rgba(var(--fg-rgb), 0.22); }
+    .mach.active {
+      color: var(--accent);
+      border-color: rgba(var(--accent-rgb), 0.5);
+    }
+    /* 不健康的Machine弱化展示，但仍可选（可能只是探测Jitter） */
+    .mach.unhealthy { opacity: 0.55; }
+    .btn {
+      border: 1px solid rgba(var(--accent-rgb), 0.35);
+      background: transparent;
+      color: var(--accent);
+      border-radius: var(--radius);
+      padding: 0.18rem 0.5rem;
+      font-size: 0.76rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn:hover { background: rgba(var(--fg-rgb), 0.06); }
+    .btn.ghost {
+      border-color: var(--line);
+      background: transparent;
+      color: var(--muted);
+    }
+    .btn.ghost:hover { color: var(--fg); border-color: rgba(var(--fg-rgb), 0.22); }
+    /* 窄屏收纳：顶栏放不下这么多按钮时，左右各留一个菜单入口，中间只剩 Tab 条。
+       左＝Launch（＋shell 与全部Presets程序），右＝More（Network diagnostics / Manage presets）。 */
+    .icon-menu {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 1.85rem;
+      height: 1.85rem;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--fg);
+      font-size: 0.95rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .icon-menu:hover { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.4); }
+    .icon-menu.open { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.5); }
+    .menu {
+      position: absolute;
+      top: calc(100% + 6px);
+      z-index: 25;
+      display: none;
+      flex-direction: column;
+      gap: 0.25rem;
+      min-width: 11rem;
+      max-width: min(18rem, calc(100vw - 1.5rem));
+      max-height: 60vh;
+      overflow-y: auto;
+      padding: 0.4rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    }
+    .menu.show { display: flex; }
+    .menu.left { left: 0.5rem; }
+    .menu.right { right: 0.5rem; }
+    .menu-title {
+      padding: 0.2rem 0.5rem 0.35rem;
+      color: var(--muted);
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+    }
+    .menu-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.12rem;
+      width: 100%;
+      text-align: left;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--fg);
+      padding: 0.5rem 0.55rem;
+      font-size: 0.86rem;
+      cursor: pointer;
+    }
+    .menu-item:hover { background: rgba(var(--accent-rgb), 0.1); color: var(--accent); }
+    .menu-item .sub {
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* 菜单打开时盖一层透明遮罩：点Terminal iframe 的事件不会冒泡到父页，没有它就关不掉菜单。 */
+    .menu-scrim {
+      position: fixed;
+      inset: 0;
+      z-index: 24;
+      display: none;
+    }
+    .menu-scrim.show { display: block; }
+    /* 外壳自身带 z-index，是个独立层叠上下文——菜单写多大的 z-index 都只在外壳这一层内部
+       排序，压不过外壳外面的遮罩。所以菜单打开时必须把整个外壳抬到遮罩之上，
+       否则遮罩会挡住菜单项，手机上点了没反应（headless 实测复现过）。 */
+    .top-shell.menu-open { z-index: 26; }
+    @media (max-width: 760px) {
+      /* 窄屏隐藏平铺的Machine/Launch器/右侧工具轨，改走左右菜单 */
+      .machines, .launchers, .rail { display: none; }
+      .icon-menu { display: inline-flex; }
+      .top { gap: 0.4rem; padding-left: 0.5rem; padding-right: 0.5rem; }
+    }
+    .stage {
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      min-height: 0;
+      background: var(--term-bg);
+    }
+    .pane {
+      position: absolute;
+      inset: 0;
+      display: none;
+      border: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--term-bg);
+    }
+    .pane.active { display: block; }
+    .empty {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      text-align: center;
+      padding: 2rem;
+      z-index: 1;
+    }
+    .empty h2 {
+      margin: 0 0 0.5rem;
+      color: var(--fg);
+      font-weight: 650;
+      font-size: 1.15rem;
+    }
+    .empty p { margin: 0; font-size: 0.92rem; line-height: 1.55; max-width: 36ch; }
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      place-items: center;
+      background: rgba(4, 6, 5, 0.62);
+      padding: 1.2rem;
+    }
+    .overlay.show { display: grid; }
+    .dialog {
+      width: min(440px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      padding: 24px;
+      max-height: calc(var(--app-height) - 32px);
+      overflow-y: auto;
+    }
+    .dialog h3 {
+      margin: 0 0 24px;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .dialog .hint {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    .choices {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      max-height: 42vh;
+      overflow: auto;
+      margin-bottom: 0.9rem;
+    }
+    .choice {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      width: 100%;
+      text-align: left;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+      color: var(--fg);
+      border-radius: var(--radius);
+      padding: 0.7rem 0.8rem;
+      cursor: pointer;
+    }
+    .choice:hover, .choice.selected {
+      border-color: rgba(var(--accent-rgb), 0.4);
+      background: rgba(var(--accent-rgb), 0.08);
+    }
+    .choice .name {
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      font-size: 0.88rem;
+    }
+    .choice .cmd {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      margin-bottom: 0.7rem;
+    }
+    .field label {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .field input {
+      border: 1px solid var(--line);
+      background: var(--field-bg);
+      color: var(--fg);
+      border-radius: var(--radius);
+      padding: 0.65rem 0.75rem;
+      font-size: 0.9rem;
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      outline: none;
+    }
+    .field input:focus { border-color: rgba(var(--accent-rgb), 0.45); }
+    .field select {
+      border: 1px solid var(--line);
+      background: var(--field-bg);
+      color: var(--fg);
+      border-radius: var(--radius);
+      padding: 0.65rem 0.75rem;
+      font-size: 0.9rem;
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      outline: none;
+    }
+    .dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.45rem;
+      margin-top: 0.4rem;
+    }
+    .preset-row {
+      display: flex;
+      gap: 0.4rem;
+      align-items: stretch;
+    }
+    .preset-row .choice { flex: 1; }
+    .icon-btn {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      border-radius: var(--radius);
+      padding: 0 0.65rem;
+      cursor: pointer;
+    }
+    .icon-btn:hover { color: var(--danger); border-color: rgba(var(--danger-rgb), 0.35); }
+    .err {
+      color: var(--danger);
+      font-size: 0.84rem;
+      min-height: 1.2em;
+      margin: 0.35rem 0 0;
+    }
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 1.4rem;
+      transform: translateX(-50%);
+      z-index: 30;
+      display: none;
+      max-width: min(90vw, 30rem);
+      padding: 0.6rem 0.9rem;
+      border: 1px solid rgba(var(--danger-rgb), 0.35);
+      border-radius: var(--radius);
+      background: var(--panel);
+      color: var(--danger);
+      font-size: 0.85rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    }
+    .toast.show { display: block; }
+    .toast.status {
+      border-color: var(--line);
+      color: var(--fg);
+    }
+    /* Network diagnostics：右上角常驻悬浮小窗。刻意不做成弹窗——没有遮罩、不夺焦点，
+       开着的时候Terminal照常能敲Command，边用边看链路Status。 */
+    .netcard {
+      position: fixed;
+      top: calc(var(--app-offset) + var(--top-h, 3rem) + 0.5rem);
+      right: 0.6rem;
+      z-index: 18;
+      display: none;
+      flex-direction: column;
+      width: min(20rem, calc(100vw - 1.2rem));
+      max-height: min(28rem, calc(var(--app-height) - var(--top-h, 3rem) - 1.6rem));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+      overflow: hidden;
+    }
+    .netcard.show { display: flex; }
+    .netcard-head {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+      padding: 0.45rem 0.4rem 0.45rem 0.65rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .netcard-head .title {
+      flex: 1;
+      min-width: 0;
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 650;
+    }
+    .netcard-head button {
+      flex-shrink: 0;
+      width: 1.55rem;
+      height: 1.55rem;
+      padding: 0;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.85rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .netcard-head button:hover { color: var(--fg); background: rgba(var(--fg-rgb), 0.08); }
+    .netcard-body {
+      overflow-y: auto;
+      padding: 0.5rem 0.65rem 0.6rem;
+      scrollbar-width: thin;
+    }
+    .netcard.collapsed .netcard-body { display: none; }
+    .mgroup { margin-bottom: 0.7rem; }
+    .mgroup:last-child { margin-bottom: 0; }
+    .mgroup h4 {
+      margin: 0 0 0.25rem;
+      color: var(--accent);
+      font-size: 0.74rem;
+      font-weight: 650;
+    }
+    .mgroup h4 .sub {
+      margin-left: 0.35rem;
+      color: var(--muted);
+      font-size: 0.66rem;
+      font-weight: 400;
+    }
+    .mrow {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.22rem 0;
+      border-bottom: 1px dashed rgba(var(--fg-rgb), 0.06);
+      font-size: 0.75rem;
+    }
+    .mrow .k {
+      color: var(--muted);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mrow .v {
+      flex-shrink: 0;
+      font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .v.good { color: var(--accent); }
+    .v.warn { color: var(--warn); }
+    .v.bad { color: var(--danger); }
+    .mnote {
+      margin: 0.4rem 0 0;
+      color: var(--muted);
+      font-size: 0.68rem;
+      line-height: 1.5;
+    }
+
+    button:focus-visible, .tab:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+    .tab { border-radius: 0; }
+    .tab .close { min-width: 24px; min-height: 28px; }
+    .btn.ghost { border-color: transparent; }
+    .machines:empty { display: none; }
+    .mach.active { color: var(--fg); border-color: var(--muted); }
+    .menu { padding: 8px; border-radius: calc(var(--radius) + 8px); }
+    .menu-item { min-height: 44px; justify-content: center; }
+    .netcard-head { padding: 8px 12px; }
+    .netcard-head button { width: 32px; height: 32px; }
+    .netcard-body { padding: 12px; }
+    .mrow { padding: 6px 0; border-bottom-style: solid; }
+    .empty { text-align: left; }
+    .empty h2 { font: 400 24px ui-monospace, Menlo, monospace; }
+    .empty p { font-size: 13px; }
+    @media (max-width: 760px) {
+      .top { flex-wrap: nowrap; gap: 4px; padding: 4px; overflow: hidden; }
+      .tabs { flex: 1 1 0%; padding: 0; overflow-x: auto; overflow-y: hidden; }
+      .tab { height: 44px; min-height: 44px; }
+      .tab .close { min-width: 32px; min-height: 40px; }
+      .icon-menu { width: 44px; height: 44px; border: 0; }
+      .field input, .field select { font-size: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="top-shell" id="topShell">
+    <header class="top">
+      <button class="icon-menu" id="btnLaunchMenu" type="button" tabindex="-1" title="Launch" aria-label="Launch" aria-expanded="false">☰</button>
+      <div class="machines" id="machines"></div>
+      <div class="launchers" id="launchers"></div>
+      <div class="tabs" id="tabs"></div>
+      <div class="rail" id="rail">
+        <button class="btn ghost" id="btnTheme" type="button" tabindex="-1" title="Theme: system, light or dark">System</button>
+        <button class="btn ghost" id="btnNet" type="button" tabindex="-1" title="Network diagnostics">Network</button>
+        <button class="btn ghost" id="btnPresets" type="button" tabindex="-1" title="Manage presets">Presets</button>
+      </div>
+      <button class="icon-menu" id="btnMoreMenu" type="button" tabindex="-1" title="More" aria-label="More" aria-expanded="false">⋯</button>
+    </header>
+    <!-- 菜单必须在 overflow:hidden 的 .top 之外，否则会被裁掉、手机上看不见也点不到 -->
+    <nav class="menu left" id="launchMenu">
+      <div id="machineMenuTitle" class="menu-title" hidden>Machine</div>
+      <div id="machineMenuItems"></div>
+      <div class="menu-title">Launch</div>
+      <div id="launchMenuItems"></div>
+    </nav>
+    <nav class="menu right" id="moreMenu">
+      <div class="menu-title">More</div>
+      <button class="menu-item" type="button" tabindex="-1" data-act="theme">深Light<span class="sub" id="menuThemeSub">System</span></button>
+      <button class="menu-item" type="button" tabindex="-1" data-act="net">Network diagnostics<span class="sub">Latency / bandwidth / health</span></button>
+      <button class="menu-item" type="button" tabindex="-1" data-act="repair">Repair display<span class="sub">Rebuild display · Ctrl/Cmd+Shift+K</span></button>
+      <button class="menu-item" type="button" tabindex="-1" data-act="presets">Manage presets<span class="sub">Manage saved launch commands</span></button>
+    </nav>
+  </div>
+  <div class="menu-scrim" id="menuScrim"></div>
+  <main class="stage" id="stage">
+    <div class="empty" id="empty">
+      <div>
+        <h2>Terminal</h2>
+        <p>＋ shell · · New terminal</p>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <aside class="netcard" id="netCard" aria-label="Network diagnostics">
+    <div class="netcard-head" id="netCardHead">
+      <span class="title">Network diagnostics</span>
+      <button type="button" id="btnNetCollapse" title="Collapse / expand" aria-label="Collapse or expand">－</button>
+      <button type="button" id="btnNetClose" title="Close" aria-label="Close">×</button>
+    </div>
+    <div class="netcard-body" id="netBody"></div>
+  </aside>
+
+  <div class="overlay" id="presetOverlay" role="dialog" aria-modal="true">
+    <div class="dialog">
+      <h3>Manage presets</h3>
+
+      <div class="choices" id="presetList"></div>
+      <div class="field">
+        <label for="presetName">Name</label>
+        <input id="presetName" placeholder="e.g. htop" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="presetCmd">Command</label>
+        <input id="presetCmd" placeholder="e.g. htop" autocomplete="off" />
+      </div>
+      <!-- 多Machine时才显示；单机部署（Machine数 1）隐藏，保持表单与现状一致 -->
+      <div class="field" id="presetMachineField" hidden>
+        <label for="presetMachine">Machine</label>
+        <select id="presetMachine"></select>
+      </div>
+      <p class="err" id="presetErr"></p>
+      <div class="dialog-actions">
+        <button class="btn ghost" type="button" data-close="presetOverlay">Close</button>
+        <button class="btn" type="button" id="btnAddPreset">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // Terminal iframe 若误加载了本页（空 path → /?rendererType=…），禁止再启一套工作台，
+    // 否则会叠出「双层 title bar」。服务端也会拒 iframe，这里是旧缓存页的兜底。
+    if (window.top !== window.self) {
+      document.documentElement.textContent = "The terminal could not load. Close this tab and open it again.";
+      throw new Error("workspace must not run inside an iframe");
+    }
+    // 手机键盘弹起时，用 visualViewport 把整页高度压到可见区域，避免Terminal被键盘盖住。
+    // interactive-widget=resizes-content 在 Chrome/Android 生效；iOS Safari 仍需这条 JS 兜底。
+    // 2026-09-14：键盘第一次升起后锁住高度（只跟更矮、不跟回弹），避免收起再弹起
+    // 把Terminal网格整页重算。转屏/宽度变了才解锁。
+    const KEYBOARD_LOCK_SHRINK_PX = 120;
+    let viewportLockWidth = 0;
+    let viewportLockHeight = 0;
+    let viewportBaseHeight = 0;
+    let keyboardHeldOpen = false;
+
+    function isCoarseWorkspace() {
+      try {
+        return window.matchMedia("(pointer: coarse)").matches && window.matchMedia("(hover: none)").matches;
+      } catch (_e) {
+        return false;
+      }
+    }
+
+    function broadcastKeyboard(open) {
+      if (keyboardHeldOpen === open) return;
+      keyboardHeldOpen = open;
+      const stage = document.getElementById("stage");
+      if (!stage) return;
+      const msg = { __shellgate: "keyboard", open: open };
+      for (const pane of stage.querySelectorAll(".pane")) {
+        try {
+          pane.contentWindow && pane.contentWindow.postMessage(msg, location.origin);
+        } catch (_e) {
+          // 单个 iframe 广播失败不影响其它 Tab
+        }
+      }
+    }
+
+    function syncAppViewport() {
+      const vv = window.visualViewport;
+      const height = Math.round(vv ? vv.height : window.innerHeight);
+      const offset = Math.round(vv ? vv.offsetTop : 0);
+      const width = Math.round(vv ? vv.width : window.innerWidth);
+
+      if (isCoarseWorkspace()) {
+        if (!viewportLockWidth || Math.abs(width - viewportLockWidth) > 8) {
+          viewportLockWidth = width;
+          viewportLockHeight = 0;
+          viewportBaseHeight = height;
+          broadcastKeyboard(false);
+        }
+        if (!viewportBaseHeight || height > viewportBaseHeight) viewportBaseHeight = height;
+        const open = viewportBaseHeight - height >= KEYBOARD_LOCK_SHRINK_PX;
+        if (open && (!viewportLockHeight || height < viewportLockHeight)) {
+          viewportLockHeight = height;
+        }
+        broadcastKeyboard(open);
+        const applied = viewportLockHeight || height;
+        document.documentElement.style.setProperty("--app-height", `${applied}px`);
+        document.documentElement.style.setProperty("--app-offset", viewportLockHeight ? "0px" : `${offset}px`);
+        return;
+      }
+
+      document.documentElement.style.setProperty("--app-height", `${height}px`);
+      document.documentElement.style.setProperty("--app-offset", `${offset}px`);
+    }
+    // 顶栏实际高度：悬浮监控小窗要正好贴在顶栏下沿，写死高度在窄屏换行时会错位。
+    function syncTopBarHeight() {
+      const top = document.querySelector(".top");
+      if (top) document.documentElement.style.setProperty("--top-h", `${Math.round(top.offsetHeight)}px`);
+    }
+    syncAppViewport();
+    syncTopBarHeight();
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", syncAppViewport);
+      window.visualViewport.addEventListener("scroll", syncAppViewport);
+    }
+    window.addEventListener("resize", () => {
+      syncAppViewport();
+      syncTopBarHeight();
+    });
+
+    const machinesEl = document.getElementById("machines");
+    const machineMenuTitle = document.getElementById("machineMenuTitle");
+    const machineMenuItems = document.getElementById("machineMenuItems");
+    const presetMachineField = document.getElementById("presetMachineField");
+    const presetMachineSelect = document.getElementById("presetMachine");
+    const tabsEl = document.getElementById("tabs");
+    const stageEl = document.getElementById("stage");
+    const emptyEl = document.getElementById("empty");
+    const launchersEl = document.getElementById("launchers");
+    const launchMenuItems = document.getElementById("launchMenuItems");
+    const launchMenu = document.getElementById("launchMenu");
+    const moreMenu = document.getElementById("moreMenu");
+    const menuScrim = document.getElementById("menuScrim");
+    const btnLaunchMenu = document.getElementById("btnLaunchMenu");
+    const btnMoreMenu = document.getElementById("btnMoreMenu");
+    const netCard = document.getElementById("netCard");
+    const netBody = document.getElementById("netBody");
+    const presetOverlay = document.getElementById("presetOverlay");
+    const presetList = document.getElementById("presetList");
+    const presetErr = document.getElementById("presetErr");
+    const toastEl = document.getElementById("toast");
+
+    // 顶栏/菜单/遮罩等非输入控件不得抢走Terminal焦点，否则手机软键盘会收起并触发整页重绘。
+    // Presets表单的输入框、Tab 条空白（要横滑）、Network小窗正文（要选数字Copy）放行。
+    function isEditableTarget(el) {
+      if (!(el instanceof Element)) return false;
+      return !!el.closest("input, textarea, select, [contenteditable='true']");
+    }
+    function preserveWorkspaceTerminalFocus(e) {
+      if (!isCoarseWorkspace()) return;
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      if (isEditableTarget(t)) return;
+      if (t.closest(".tabs") && !t.closest(".tab")) return;
+      if (t.closest(".netcard-body")) return;
+      e.preventDefault();
+    }
+    document.addEventListener("pointerdown", preserveWorkspaceTerminalFocus, true);
+
+    function focusActiveTerminal() {
+      const pane = stageEl && stageEl.querySelector(".pane.active");
+      if (!pane) return;
+      try {
+        pane.focus();
+        const win = pane.contentWindow;
+        if (win) win.focus();
+        const doc = pane.contentDocument;
+        const ta = doc && doc.querySelector(".xterm-helper-textarea");
+        if (ta) ta.focus({ preventScroll: true });
+      } catch (_e) {
+        // iframe 尚未就绪或跨源时忽略
+      }
+    }
+
+    let toastTimer = 0;
+    function toast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.remove("status");
+      toastEl.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove("show"), 3200);
+    }
+
+    function statusToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add("show", "status");
+      clearTimeout(toastTimer);
+    }
+
+    function clearStatusToast() {
+      if (!toastEl.classList.contains("status")) return;
+      toastEl.classList.remove("show", "status");
+    }
+
+    /** @type {{id:string,title:string,path:string,machine:string}[]} */
+    let tabs = [];
+    let activeId = null;
+    // 每台机器上次激活的 Tab：切机回来优先恢复，关掉或不存在再落到该机最近一个。
+    /** @type {Record<string, string>} */
+    let activeByMachine = {};
+	const TAB_STATE_KEY = "shellgate_tabs_state";
+    /** @type {{id:string,name:string,command:string,machine:string}[]} */
+    let presets = [];
+    /** @type {{name:string,target:string,default:boolean,healthy:boolean,failStreak:number,wakeable:boolean}[]} */
+    let machines = [];
+    // 当前选中的目标Machine（「＋ shell」与未绑定Machine的Presets都开在这台上）。
+    let selectedMachine = null;
+
+    // ---------- 深Light主题 ----------
+    // 父页是配色唯一真相源：解出「自动System / 手动锁定Light / 手动锁定Dark」的最终
+    // 结果后，一边打在 <html data-theme> 上驱动本页外壳的 CSS 变量，一边把对应的
+    // xterm 主题对象连同解出的模式广播给所有Terminal iframe（enhance.js 收到后直接改
+    // term.options.theme，颜色立刻重绘，不重连、不打断正在跑的程序）。
+    //
+    // DarkTerminal主题刻意只带 selectionBackground 这一个键：xterm 对未指定的键会回落
+    // 到默认色，这样从Light切回Dark能完整还原改动前的观感，不用维护一份Dark全量色表。
+    const TERM_THEME_DARK = { selectionBackground: "#5DA5D559" };
+    // Light是「纸感中性」配色：近白底 + 深灰字 + 墨绿强调，与工作台外壳的
+    // --accent/--danger/--warn 同源；十六色里「高亮」组比基础组更深更浓而不是更亮——
+    // 白底上更亮的颜色反而看不清。
+    const TERM_THEME_LIGHT = {
+      background: "#FAFAF8",
+      foreground: "#24292F",
+      cursor: "#2F8F63",
+      cursorAccent: "#FAFAF8",
+      selectionBackground: "#0550AE29",
+      black: "#24292F",
+      red: "#C0341D",
+      green: "#1A7F37",
+      yellow: "#9A6700",
+      blue: "#0550AE",
+      magenta: "#8250DF",
+      cyan: "#1B7C83",
+      white: "#6E7781",
+      brightBlack: "#57606A",
+      brightRed: "#A40E26",
+      brightGreen: "#116329",
+      brightYellow: "#7A4D05",
+      brightBlue: "#0A3069",
+      brightMagenta: "#6639BA",
+      brightCyan: "#0F5A60",
+      brightWhite: "#24292F",
+    };
+    function termThemeFor(resolved) {
+      return resolved === "light" ? TERM_THEME_LIGHT : TERM_THEME_DARK;
+    }
+    function termLetterboxFor(resolved) {
+      return resolved === "light" ? "#FAFAF8" : "#000";
+    }
+
+    const THEME_KEY = "shellgate_theme_pref";
+    const THEME_LABEL = { auto: "System", light: "Light", dark: "Dark" };
+    const darkSchemeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+    const lightSchemeQuery = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
+
+    function loadThemePref() {
+      try {
+        const v = localStorage.getItem(THEME_KEY);
+        return v === "light" || v === "dark" || v === "auto" ? v : "auto";
+      } catch (_e) {
+        return "auto";
+      }
+    }
+    let themePref = loadThemePref();
+
+    // 浏览器不支持深Light媒体查询时退回Dark——和改动前的默认外观一致。
+    function systemPrefersLight() {
+      if (lightSchemeQuery && lightSchemeQuery.matches) return true;
+      if (darkSchemeQuery && darkSchemeQuery.matches) return false;
+      return false;
+    }
+    function resolveTheme(pref) {
+      if (pref === "light" || pref === "dark") return pref;
+      return systemPrefersLight() ? "light" : "dark";
+    }
+
+    function updateThemeButton() {
+      const label = THEME_LABEL[themePref];
+      const btn = document.getElementById("btnTheme");
+      if (btn) btn.textContent = label;
+      const sub = document.getElementById("menuThemeSub");
+      if (sub) sub.textContent = label;
+    }
+
+    function broadcastTheme(resolved) {
+      const msg = { __shellgate: "theme", mode: resolved, theme: termThemeFor(resolved), bg: termLetterboxFor(resolved) };
+      for (const pane of stageEl.querySelectorAll(".pane")) {
+        try {
+          pane.contentWindow && pane.contentWindow.postMessage(msg, location.origin);
+        } catch (_e) {
+          // 单个 iframe 广播失败不影响其它 Tab
+        }
+      }
+    }
+
+    // 画面乱码（渲染层字符贴图过期）自愈入口：广播给所有Terminal iframe，enhance.js
+    // 收到后调 xterm 的贴图重建接口，全屏重绘、不打扰Terminal里正跑的程序。
+    // 相当于把「手动调窗口大小恢复」降级成一键无损动作。
+    function repairTerminals() {
+      const panes = stageEl.querySelectorAll(".pane");
+      if (!panes.length) {
+        toast("No open terminals");
+        return;
+      }
+      const msg = { __shellgate: "repair-display", reason: "menu" };
+      for (const pane of panes) {
+        try {
+          pane.contentWindow && pane.contentWindow.postMessage(msg, location.origin);
+        } catch (_e) {
+          // 单个 iframe 广播失败不影响其它 Tab
+        }
+      }
+    }
+
+    function applyTheme() {
+      const resolved = resolveTheme(themePref);
+      document.documentElement.dataset.theme = resolved;
+      updateThemeButton();
+      broadcastTheme(resolved);
+    }
+
+    function setThemePref(next) {
+      themePref = next;
+      try {
+        localStorage.setItem(THEME_KEY, next);
+      } catch (_e) {
+        // 隐私模式等场景写不进去也不影响当次生效
+      }
+      applyTheme();
+    }
+
+    function cycleTheme() {
+      const order = ["auto", "light", "dark"];
+      setThemePref(order[(order.indexOf(themePref) + 1) % order.length]);
+    }
+
+    // 系统深Light切换（比如日落自动变深）时，只有当前是「System」才需要重新求解。
+    if (darkSchemeQuery && darkSchemeQuery.addEventListener) {
+      darkSchemeQuery.addEventListener("change", () => { if (themePref === "auto") applyTheme(); });
+    }
+    if (lightSchemeQuery && lightSchemeQuery.addEventListener) {
+      lightSchemeQuery.addEventListener("change", () => { if (themePref === "auto") applyTheme(); });
+    }
+    // 尽早打上 data-theme，赶在下面第一个 openTab 之前，外壳与首个Terminal从第一帧就是对的颜色。
+    applyTheme();
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+        ...opts,
+      });
+      if (res.status === 401) {
+        location.replace("/login");
+        throw new Error("Not signed in");
+      }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || "Request failed");
+      return body;
+    }
+
+    function showOverlay(el, on) {
+      el.classList.toggle("show", on);
+    }
+
+    function tabsOnMachine(machine) {
+      if (machines.length <= 1 || !machine) return tabs;
+      return tabs.filter((t) => t.machine === machine);
+    }
+
+    function lastTabOnMachine(machine) {
+      const list = tabsOnMachine(machine);
+      return list.length ? list[list.length - 1] : null;
+    }
+
+    function rememberActiveForMachine(id) {
+      if (!id) return;
+      const tab = tabs.find((t) => t.id === id);
+      if (tab && tab.machine) activeByMachine[tab.machine] = id;
+    }
+
+    function rememberedTabOnMachine(machine) {
+      if (!machine) return null;
+      const id = activeByMachine[machine];
+      if (!id) return null;
+      const tab = tabs.find((t) => t.id === id && t.machine === machine);
+      if (!tab) {
+        delete activeByMachine[machine];
+        return null;
+      }
+      return tab;
+    }
+
+    function renderTabs() {
+      tabsEl.innerHTML = "";
+      const visible = tabsOnMachine(selectedMachine);
+      emptyEl.style.display = visible.length ? "none" : "grid";
+      // 多Machine且当前机没有 Tab 时，空态说明是「这台机还没有」，避免误以为全局都空了
+      if (!visible.length && machines.length > 1 && selectedMachine) {
+        const hint = emptyEl.querySelector("p");
+        if (hint) hint.textContent = "＋ shell · on " + selectedMachine + " · New terminal";
+      }
+      for (const t of visible) {
+        const el = document.createElement("div");
+        el.className = "tab" + (t.id === activeId ? " active" : "");
+        // Tab 条已按当前Machine过滤，同条内不必再出色点——Machine由左侧 pill 表达
+        el.innerHTML = `<span class="title"></span><button class="close" type="button" title="Close" aria-label="Close">×</button>`;
+        el.querySelector(".title").textContent = t.title;
+        el.addEventListener("click", (e) => {
+          if (e.target.closest(".close")) return;
+          activate(t.id);
+        });
+        el.querySelector(".close").addEventListener("click", (e) => {
+          e.stopPropagation();
+          closeTab(t.id);
+        });
+        tabsEl.appendChild(el);
+      }
+      for (const pane of stageEl.querySelectorAll(".pane")) {
+        pane.classList.toggle("active", pane.dataset.id === activeId);
+      }
+      // 新开/Close Tab 后顶栏宽度会变；高度应保持单行，但仍同步一次给监控小窗贴边用
+      syncTopBarHeight();
+      // 新 Tab 滚进可见区，避免挤在裁切外却让人以为没开成功
+      const activeTab = tabsEl.querySelector(".tab.active");
+      if (activeTab && typeof activeTab.scrollIntoView === "function") {
+        activeTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+    }
+
+    function activate(id) {
+      activeId = id;
+      rememberActiveForMachine(id);
+      // 点到某台机器上的 Tab 时，机器选择跟着走，保证条上能看见它
+      if (id && machines.length > 1) {
+        const tab = tabs.find((t) => t.id === id);
+        if (tab && tab.machine && tab.machine !== selectedMachine) {
+          selectedMachine = tab.machine;
+          try {
+            localStorage.setItem(MACHINE_KEY, tab.machine);
+          } catch (_e) {}
+          renderMachines();
+          renderLaunchers();
+        }
+      }
+      persistTabState();
+      renderTabs();
+      focusActiveTerminal();
+    }
+
+    function persistTabState() {
+      try {
+        // 只记本机展示偏好（当前选中哪一个、每台机器上次激活哪个）；Tab 目录以服务端账号记忆为准。
+        sessionStorage.setItem(TAB_STATE_KEY, JSON.stringify({
+          activeId,
+          activeByMachine,
+        }));
+      } catch (_e) {}
+    }
+
+    function savedTabState() {
+      try {
+        const state = JSON.parse(sessionStorage.getItem(TAB_STATE_KEY) || "null");
+        return state && typeof state === "object" ? state : null;
+      } catch (_e) {
+        return null;
+      }
+    }
+
+    // ---------- 多上游Machine选择 ----------
+    // Machine目录由服务端下发（/api/machines），客户端不内置任何Machine名。
+    // 只有一台Machine时选择器整体不渲染（宽窄屏都是），单机部署界面零变化。
+    const MACHINE_KEY = "shellgate_machine";
+
+    async function loadMachines() {
+      const data = await api("/api/machines");
+      machines = data.machines || [];
+      const fallback = machines.find((m) => m.default) || machines[0];
+      if (!fallback) return;
+      // 恢复上次选择（每台设备各自记忆），Machine已被删掉时退回默认Machine
+      let saved = null;
+      try {
+        saved = localStorage.getItem(MACHINE_KEY);
+      } catch (_e) {}
+      selectedMachine = machines.some((m) => m.name === saved) ? saved : fallback.name;
+      renderMachines();
+      // Launch器 hint（「＋ shell」当前落点）依赖Machine列表，加载完刷新一遍
+      renderLaunchers();
+    }
+
+    async function ensureMachineReady(name) {
+      const machine = machines.find((m) => m.name === name);
+      if (!machine || !machine.wakeable) return false;
+      const statusTimer = setTimeout(() => {
+        statusToast("Connecting to " + name + "; waking it if asleep…");
+      }, 250);
+      try {
+        const result = await api("/api/machines/" + encodeURIComponent(name) + "/ready", { method: "POST" });
+        machine.healthy = true;
+        machine.failStreak = 0;
+        renderMachines();
+        return Boolean(result.woke);
+      } finally {
+        clearTimeout(statusTimer);
+        clearStatusToast();
+      }
+    }
+
+    function reloadMachinePanes(name) {
+      for (const pane of stageEl.querySelectorAll(".pane")) {
+        const tab = tabs.find((item) => item.id === pane.dataset.id);
+        if (tab && tab.machine === name) pane.src = pane.src;
+      }
+    }
+
+    async function selectMachine(name) {
+      const unchanged = name === selectedMachine;
+      const woke = await ensureMachineReady(name);
+      if (woke) reloadMachinePanes(name);
+      // 用户再次点击当前 Mac 也属于明确的连接意图，必须允许把已睡眠的Machine叫醒；
+      // 但Machine没变时不重复切换 Tab 集合。
+      if (unchanged) return;
+      // 离开前先记下当前机激活态，再改选中机器，切回来才能恢复
+      rememberActiveForMachine(activeId);
+      selectedMachine = name;
+      try {
+        localStorage.setItem(MACHINE_KEY, name);
+      } catch (_e) {}
+      renderMachines();
+      // 「＋ shell」的 hint 显示当前落点，切换后同步刷新
+      renderLaunchers();
+      // 切换机器 = 切换 Tab 集合：优先该机上次激活的 Tab，否则最近一个，没有则空态
+      const keep = tabs.find((t) => t.id === activeId && t.machine === name);
+      if (keep) {
+        rememberActiveForMachine(keep.id);
+        persistTabState();
+        renderTabs();
+        return;
+      }
+      const remembered = rememberedTabOnMachine(name);
+      const fallback = remembered || lastTabOnMachine(name);
+      activeId = fallback ? fallback.id : null;
+      rememberActiveForMachine(activeId);
+      persistTabState();
+      renderTabs();
+      focusActiveTerminal();
+    }
+
+    // 宽屏顶栏 pill 与窄屏 ☰ 菜单渲染同一份数据，与Presets按钮的「一处数据两处渲染」同构。
+    function renderMachines() {
+      machinesEl.innerHTML = "";
+      machineMenuItems.innerHTML = "";
+      machineMenuTitle.hidden = machines.length <= 1;
+      if (machines.length <= 1) return;
+      for (const m of machines) {
+        const pill = document.createElement("button");
+        pill.type = "button";
+        pill.tabIndex = -1;
+        pill.className = "mach" + (m.name === selectedMachine ? " active" : "") + (m.healthy ? "" : " unhealthy");
+        pill.textContent = m.name;
+        pill.title = m.target + (m.healthy ? "" : " · May be unavailable");
+        pill.addEventListener("click", () => {
+          selectMachine(m.name).catch((e) => toast(e.message || "Connection failed"));
+        });
+        machinesEl.appendChild(pill);
+
+        const item = document.createElement("button");
+        item.type = "button";
+        item.tabIndex = -1;
+        item.className = "menu-item";
+        const label = document.createElement("span");
+        label.textContent = m.name + (m.name === selectedMachine ? " ✓" : "");
+        item.appendChild(label);
+        const sub = document.createElement("span");
+        sub.className = "sub";
+        sub.textContent = m.title || m.target;
+        item.appendChild(sub);
+        item.addEventListener("click", async () => {
+          closeMenus();
+          try {
+            await selectMachine(m.name);
+          } catch (e) {
+            toast(e.message || "Connection failed");
+          }
+        });
+        machineMenuItems.appendChild(item);
+      }
+      refreshPresetMachineOptions();
+    }
+
+    // Presets表单的Machine下拉：跟随选择 / 各Machine名
+    function refreshPresetMachineOptions() {
+      if (!presetMachineSelect) return;
+      presetMachineSelect.innerHTML = "";
+      if (machines.length <= 1) {
+        presetMachineField.hidden = true;
+        return;
+      }
+      presetMachineField.hidden = false;
+      const follow = document.createElement("option");
+      follow.value = "";
+      follow.textContent = "Follow selection (current: " + (selectedMachine || "-") + "）";
+      presetMachineSelect.appendChild(follow);
+      for (const m of machines) {
+        const opt = document.createElement("option");
+        opt.value = m.name;
+        opt.textContent = m.name;
+        presetMachineSelect.appendChild(opt);
+      }
+    }
+
+    async function openTab({ presetId, title, command } = {}) {
+      const preset = presetId ? presets.find((item) => item.id === presetId) : null;
+      const targetMachine = (preset && preset.machine) || selectedMachine;
+      const woke = await ensureMachineReady(targetMachine);
+      if (woke) reloadMachinePanes(targetMachine);
+      const body = {};
+      if (presetId) body.presetId = presetId;
+      if (title) body.title = title;
+      if (command) body.command = command;
+      // 目标Machine交给服务端按「Presets绑定 > 请求指定 > 默认」解析；这里带上当前选择，
+      // 让未绑定Machine的Presets与「＋ shell」落在用户选中的那台上。
+      if (selectedMachine) body.machine = selectedMachine;
+      const tab = await api("/api/tabs", { method: "POST", body: JSON.stringify(body) });
+      tabs.push({ id: tab.id, title: tab.title, path: tab.path, machine: tab.machine || "" });
+      persistTabState();
+      mountTabPane(tab);
+      // Presets绑定到其它Machine时，选择器跟着切过去，新 Tab 才会出现在当前条上
+      if (tab.machine && machines.length > 1 && tab.machine !== selectedMachine) {
+        selectedMachine = tab.machine;
+        try {
+          localStorage.setItem(MACHINE_KEY, tab.machine);
+        } catch (_e) {}
+        renderMachines();
+        renderLaunchers();
+      }
+      activate(tab.id);
+    }
+
+    function mountTabPane(tab) {
+      if (stageEl.querySelector(`.pane[data-id="${CSS.escape(tab.id)}"]`)) return;
+      // path 必须是 /t/{id}/：空字符串会让 src 变成 "?rendererType=…"，相对当前页解析成
+      // /?…，工作台嵌进 iframe → 双层顶栏。缺 path / 非Terminal路径一律拒绝挂载。
+      const path = typeof tab.path === "string" ? tab.path : "";
+      if (!/^\/t\/[^/]+\/$/.test(path)) {
+        toast("The terminal address is invalid. Close it and open it again.");
+        return;
+      }
+      const iframe = document.createElement("iframe");
+      iframe.className = "pane";
+      iframe.dataset.id = tab.id;
+      // 默认 canvas：2026-08-31 裁定中文正确优先于 WebGL 那 44ms 绘制。
+      // ttyd 1.7.7 捆的 xterm 5.4.0 WebGL 图集在 Corral 流式 CJK 下会把中文
+      // 画丢/画花；自愈是事后补洞，且局部行更新经常触发不到。URL 查询参数
+      // 优先于 ttyd Launch `-t`（后者实测还不可靠）。
+      //
+      // 截图：canvas 渲染器本身是 2D 画布，drawImage 正常。enhance.js 仍在
+      // 建上下文前对 webgl/webgl2 打开 preserveDrawingBuffer——有人强制
+      // webgl、或上下文丢失后再拉起时，裸 WebGL 合成后缓冲被清空会截出全黑。
+      //
+      // selectionBackground 仍带 8 位 alpha：canvas 把选区画在文字层上面，
+      // 不透明会整块盖住文字（xterm.js #2737/#2808）。ttyd 的 theme 客户端
+      // 选项直接透传给 xterm 的 ITheme，同样走查询参数最可靠。
+      //
+      // 带上当前生效的深Light配色，避免Terminal先按默认Dark画一帧再被 postMessage 改成
+      // Light的闪烁；后续切换深Light不重开这个 iframe，靠 enhance.js 收 postMessage
+      // 运行时改 term.options.theme。
+      var theme = encodeURIComponent(JSON.stringify(termThemeFor(resolveTheme(themePref))));
+      // disableReconnect=true 关掉 ttyd 自带重连（正常Close要手点、异常只试一次），
+      // 断线恢复统一交给 enhance.js 的 installConnectionKeeper：回前台/联网即自动重连。
+      iframe.src = path + "?rendererType=canvas&disableReconnect=true&theme=" + theme;
+      iframe.setAttribute("allow", "clipboard-read; clipboard-write");
+      iframe.addEventListener("load", () => {
+        if (!keyboardHeldOpen) return;
+        try {
+          iframe.contentWindow && iframe.contentWindow.postMessage({ __shellgate: "keyboard", open: true }, location.origin);
+        } catch (_e) {}
+      });
+      stageEl.appendChild(iframe);
+    }
+
+    async function closeTab(id) {
+      try {
+        await api("/api/tabs/" + encodeURIComponent(id), { method: "DELETE" });
+      } catch (_) {
+        emptyEl.querySelector("p").textContent = "Could not close tab. Please try again.";
+        return;
+      }
+      tabs = tabs.filter((t) => t.id !== id);
+      const pane = stageEl.querySelector(`.pane[data-id="${CSS.escape(id)}"]`);
+      if (pane) {
+        pane.src = "about:blank";
+        pane.remove();
+      }
+      for (const [machine, rememberedId] of Object.entries(activeByMachine)) {
+        if (rememberedId === id) delete activeByMachine[machine];
+      }
+      if (activeId === id) {
+        // 关掉当前 Tab 后留在同一台Machine；该机没有了就空态，不擅自跳到别的Machine
+        const same = lastTabOnMachine(selectedMachine);
+        activeId = same ? same.id : null;
+        rememberActiveForMachine(activeId);
+      }
+      persistTabState();
+      renderTabs();
+    }
+
+    async function restoreTabsAfterRefresh() {
+      const data = await api("/api/tabs");
+      // 账号下全量挂载；换浏览器登录也看到同一组，禁止再用本窗口临时Status过滤。
+      tabs = (data.tabs || []).map((tab) => ({
+        id: tab.id,
+        title: tab.title,
+        path: tab.path,
+        machine: tab.machine || "",
+      }));
+      const saved = savedTabState() || { activeId: null, activeByMachine: {} };
+      for (const tab of tabs) mountTabPane(tab);
+      activeByMachine = {};
+      if (saved.activeByMachine && typeof saved.activeByMachine === "object") {
+        for (const [machine, id] of Object.entries(saved.activeByMachine)) {
+          if (typeof id === "string" && tabs.some((tab) => tab.id === id && tab.machine === machine)) {
+            activeByMachine[machine] = id;
+          }
+        }
+      }
+      activeId = tabs.some((tab) => tab.id === saved.activeId) ? saved.activeId : (tabs[0] && tabs[0].id) || null;
+      rememberActiveForMachine(activeId);
+      const active = tabs.find((tab) => tab.id === activeId);
+      if (active && machines.length > 1 && active.machine) selectedMachine = active.machine;
+      persistTabState();
+      renderMachines();
+      renderLaunchers();
+      renderTabs();
+      return tabs.length > 0;
+    }
+
+    async function loadPresets() {
+      const data = await api("/api/presets");
+      presets = data.presets || [];
+      return presets;
+    }
+
+    // 顶栏直接摆「＋ shell」和每个Presets程序，点一下即开新 Tab。
+    // 窄屏顶栏放不下时按钮整体收进左侧菜单，两处渲染同一份数据，不做二级选择层。
+    function renderLaunchers() {
+      launchersEl.innerHTML = "";
+      launchMenuItems.innerHTML = "";
+      const items = [
+        { label: "＋ shell", hint: "Open an empty shell" + (machines.length > 1 && selectedMachine ? " · " + selectedMachine : ""), cls: "primary", args: { title: "shell" } },
+        ...presets.map((p) => ({
+          label: p.name,
+          hint: p.command + (machines.length > 1 && p.machine ? " · " + p.machine : ""),
+          cls: "",
+          args: { presetId: p.id, title: p.name },
+        })),
+      ];
+      for (const it of items) {
+        launchersEl.appendChild(makeLauncher(it.label, it.hint, it.cls, it.args));
+        launchMenuItems.appendChild(makeLaunchMenuItem(it));
+      }
+    }
+
+    function makeLaunchMenuItem(it) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.tabIndex = -1;
+      btn.className = "menu-item";
+      const name = document.createElement("span");
+      name.textContent = it.label;
+      btn.appendChild(name);
+      if (it.hint) {
+        const sub = document.createElement("span");
+        sub.className = "sub";
+        sub.textContent = it.hint;
+        btn.appendChild(sub);
+      }
+      btn.addEventListener("click", async () => {
+        closeMenus();
+        try {
+          await openTab(it.args);
+        } catch (e) {
+          toast(e.message || "Could not open");
+        }
+      });
+      return btn;
+    }
+
+    // ---------- 窄屏顶栏菜单 ----------
+    const topShell = document.getElementById("topShell");
+
+    function closeMenus() {
+      for (const [menu, btn] of [[launchMenu, btnLaunchMenu], [moreMenu, btnMoreMenu]]) {
+        menu.classList.remove("show");
+        btn.classList.remove("open");
+        btn.setAttribute("aria-expanded", "false");
+      }
+      menuScrim.classList.remove("show");
+      topShell.classList.remove("menu-open");
+    }
+
+    function toggleMenu(menu, btn) {
+      const willOpen = !menu.classList.contains("show");
+      closeMenus();
+      if (!willOpen) return;
+      menu.classList.add("show");
+      btn.classList.add("open");
+      btn.setAttribute("aria-expanded", "true");
+      menuScrim.classList.add("show");
+      topShell.classList.add("menu-open");
+    }
+
+    // 外壳此时浮在遮罩之上，点顶栏其它地方（比如切 Tab）遮罩收不到事件，这里补上收起。
+    topShell.addEventListener("click", (e) => {
+      if (e.target.closest(".menu") || e.target.closest(".icon-menu")) return;
+      closeMenus();
+    });
+
+    btnLaunchMenu.addEventListener("click", () => toggleMenu(launchMenu, btnLaunchMenu));
+    btnMoreMenu.addEventListener("click", () => toggleMenu(moreMenu, btnMoreMenu));
+    menuScrim.addEventListener("click", closeMenus);
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeMenus();
+    });
+    moreMenu.addEventListener("click", (e) => {
+      const item = e.target.closest(".menu-item");
+      if (!item) return;
+      closeMenus();
+      if (item.dataset.act === "theme") cycleTheme();
+      if (item.dataset.act === "net") openNetPanel();
+      if (item.dataset.act === "repair") repairTerminals();
+      if (item.dataset.act === "presets") openPresetPanel();
+    });
+
+    function makeLauncher(label, hint, extraClass, openArgs) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.tabIndex = -1;
+      btn.className = "launch" + (extraClass ? " " + extraClass : "");
+      btn.textContent = label;
+      if (hint) btn.title = hint;
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+          await openTab(openArgs);
+        } catch (e) {
+          toast(e.message || "Could not open");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+      return btn;
+    }
+
+    function renderPresetList() {
+      presetList.innerHTML = "";
+      for (const p of presets) {
+        const row = document.createElement("div");
+        row.className = "preset-row";
+        row.innerHTML = `
+          <div class="choice" style="cursor:default">
+            <div>
+              <div class="name"></div>
+              <div class="cmd"></div>
+            </div>
+          </div>
+          <button class="icon-btn" type="button" title="Delete">删</button>
+        `;
+        row.querySelector(".name").textContent = p.name;
+        row.querySelector(".cmd").textContent = p.command + (machines.length > 1 && p.machine ? " · " + p.machine : "");
+        row.querySelector(".icon-btn").addEventListener("click", async () => {
+          try {
+            presetErr.textContent = "";
+            await api("/api/presets/" + encodeURIComponent(p.id), { method: "DELETE" });
+            await loadPresets();
+            renderPresetList();
+            renderLaunchers();
+          } catch (e) {
+            presetErr.textContent = e.message || "Could not delete preset";
+          }
+        });
+        presetList.appendChild(row);
+      }
+    }
+
+    async function openPresetPanel() {
+      presetErr.textContent = "";
+      try {
+        await loadPresets();
+        renderPresetList();
+        showOverlay(presetOverlay, true);
+      } catch (e) {
+        toast(e.message || "Could not load presets");
+      }
+    }
+
+    document.getElementById("btnPresets").addEventListener("click", openPresetPanel);
+    document.getElementById("btnNet").addEventListener("click", openNetPanel);
+    document.getElementById("btnTheme").addEventListener("click", cycleTheme);
+
+    document.getElementById("btnAddPreset").addEventListener("click", async () => {
+      const name = document.getElementById("presetName").value.trim();
+      const command = document.getElementById("presetCmd").value.trim();
+      try {
+        presetErr.textContent = "";
+        await api("/api/presets", {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            command,
+            machine: machines.length > 1 ? presetMachineSelect.value : "",
+            sortOrder: presets.length,
+          }),
+        });
+        document.getElementById("presetName").value = "";
+        document.getElementById("presetCmd").value = "";
+        await loadPresets();
+        renderPresetList();
+        renderLaunchers();
+      } catch (e) {
+        presetErr.textContent = e.message || "Could not add preset";
+      }
+    });
+
+    document.querySelectorAll("[data-close]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        showOverlay(document.getElementById(btn.dataset.close), false);
+        focusActiveTerminal();
+      });
+    });
+
+    document.querySelectorAll(".overlay").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        if (e.target === el) {
+          showOverlay(el, false);
+          focusActiveTerminal();
+        }
+      });
+    });
+
+    // ---------- Network diagnostics ----------
+    // 链路分两段量，各由唯一量得到的一方负责：
+    //   下行段（这台Device ↔ Gateway）：只有浏览器测得到，打 /api/netmon/ping 取往返。
+    //   上行段（Gateway ↔ Terminal）：只有门禁测得到，见 internal/server/netmon.go。
+    //   End to end（按键 → 回显）：只有Terminal iframe 里测得到，enhance.js 用 postMessage 递上来。
+    // 三段都用「同一个时钟上的两次取时」算往返——两端系统时钟不同步，单向时延不可信。
+    const NET_PING_IDLE_MS = 15000; // 面板没开时低频采样，够画出趋势又不费电
+    const NET_PING_OPEN_MS = 2000; // 面板打开时加密采样
+    const NET_PUSH_MS = 20000; // 推给门禁归档的间隔
+    const NET_TAB_STALE_MS = 8000; // 超过这么久没收到 iframe 上报就算没数据
+
+    const clientId = (() => {
+      try {
+        let id = sessionStorage.getItem("__shellgate_client");
+        if (!id) {
+          id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+          sessionStorage.setItem("__shellgate_client", id);
+        }
+        return id;
+      } catch (_e) {
+        return "anon";
+      }
+    })();
+
+    // 与门禁侧 rttWindow（internal/server/netmon.go）同口径：p50/p95 + RFC 3550 式Jitter，
+    // 保证面板上两段链路的数字可以直接横向比较。
+    function createRttTracker(size) {
+      const buf = [];
+      let jitter = 0;
+      let prev = null;
+      let total = 0;
+      let last = 0;
+      return {
+        add(ms) {
+          if (!(ms >= 0) || !isFinite(ms)) return;
+          buf.push(ms);
+          if (buf.length > size) buf.shift();
+          if (prev !== null) jitter += (Math.abs(ms - prev) - jitter) / 16;
+          prev = ms;
+          last = ms;
+          total += 1;
+        },
+        stats() {
+          if (!buf.length) return { count: total, lastMs: 0, minMs: 0, maxMs: 0, avgMs: 0, p50Ms: 0, p95Ms: 0, jitterMs: 0 };
+          const s = [...buf].sort((a, b) => a - b);
+          const sum = s.reduce((a, b) => a + b, 0);
+          const pct = (p) => s[Math.min(s.length - 1, Math.max(0, Math.ceil(p * s.length) - 1))];
+          const r1 = (v) => Math.round(v * 10) / 10;
+          return {
+            count: total,
+            lastMs: r1(last),
+            minMs: r1(s[0]),
+            maxMs: r1(s[s.length - 1]),
+            avgMs: r1(sum / s.length),
+            p50Ms: r1(pct(0.5)),
+            p95Ms: r1(pct(0.95)),
+            jitterMs: r1(jitter),
+          };
+        },
+      };
+    }
+
+    const gateRtt = createRttTracker(120);
+    /** @type {Map<string, any>} 各Terminal Tab 由 enhance.js 上报的链路观测 */
+    const tabNet = new Map();
+    let netSnapshot = null;
+    let netPingTimer = 0;
+    let netRefreshTimer = 0;
+    let netPingGen = 0;
+
+    window.addEventListener("message", (e) => {
+      if (e.origin !== location.origin) return;
+      const d = e.data;
+      if (!d || d.__shellgate !== "netmon" || !d.tabId) return;
+      tabNet.set(d.tabId, { ...d, at: Date.now() });
+    });
+
+    // gen 是采样链代号：打开面板要立刻切到高频，旧链在下一跳自行退出，避免两条链并行重复采样。
+    async function runNetPing(gen) {
+      if (gen !== netPingGen) return;
+      if (document.visibilityState === "visible") {
+        const t0 = performance.now();
+        try {
+          const res = await fetch("/api/netmon/ping", { credentials: "same-origin", cache: "no-store" });
+          await res.text();
+          if (res.ok) gateRtt.add(performance.now() - t0);
+        } catch (_e) {
+          // 断网时不记Samples，免得把一堆超时值拉进分位数
+        }
+      }
+      if (gen !== netPingGen) return;
+      netPingTimer = setTimeout(
+        () => runNetPing(gen),
+        netCardOpen() ? NET_PING_OPEN_MS : NET_PING_IDLE_MS,
+      );
+    }
+
+    function liveTabNet() {
+      const now = Date.now();
+      return tabs
+        .map((t) => ({ tab: t, net: tabNet.get(t.id) }))
+        .filter((x) => x.net && now - x.net.at < NET_TAB_STALE_MS);
+    }
+
+    // End to end回显以当前活跃 Tab 为准：不同 Tab 跑的程序不一样，混在一起算分位数没有意义。
+    function activeEchoStats() {
+      const live = liveTabNet();
+      const hit = live.find((x) => x.tab.id === activeId) || live.find((x) => x.net.echo && x.net.echo.count > 0);
+      return hit && hit.net.echo ? hit.net.echo : null;
+    }
+
+    async function pushNetSample() {
+      const live = liveTabNet();
+      if (!live.length && gateRtt.stats().count === 0) return;
+      const conn = navigator.connection || {};
+      try {
+        await fetch("/api/netmon/sample", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientId,
+            device: window.matchMedia("(pointer: coarse)").matches ? "mobile" : "desktop",
+            online: navigator.onLine !== false,
+            netType: conn.effectiveType || "",
+            gateRtt: gateRtt.stats(),
+            echoRtt: activeEchoStats() || undefined,
+            reconnects: live.reduce((a, x) => a + (x.net.reconnects || 0), 0),
+            tabs: live.map((x) => ({
+              tabId: x.tab.id,
+              title: x.tab.title,
+              machine: x.tab.machine || "",
+              connected: !!x.net.connected,
+              downBps: x.net.downBps || 0,
+              upBps: x.net.upBps || 0,
+              downBytes: x.net.downBytes || 0,
+              upBytes: x.net.upBytes || 0,
+              echoMs: (x.net.echo && x.net.echo.p50Ms) || 0,
+              cols: x.net.cols || 0,
+              rows: x.net.rows || 0,
+              renderPerSec: x.net.renderPerSec || 0,
+              longTaskMs: x.net.longTaskMs || 0,
+              reconnects: x.net.reconnects || 0,
+              closeCode: x.net.closeCode || 0,
+              idleSeconds: x.net.idleSeconds,
+            })),
+          }),
+        });
+      } catch (_e) {
+        // 归档失败不影响面板本身
+      }
+    }
+
+    // hasSamples 用来区分「还没量到」和「量到了、就是 0」——Jitter为 0 是好事，
+    // 显示成「—」会被误读成没数据。
+    function fmtMs(v, hasSamples) {
+      if (!(v > 0)) return hasSamples ? "0 ms" : "—";
+      return v >= 1000 ? (v / 1000).toFixed(2) + " s" : Math.round(v * 10) / 10 + " ms";
+    }
+
+    function fmtBps(v) {
+      if (!(v > 0)) return "0 B/s";
+      if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(2) + " MB/s";
+      if (v >= 1024) return (v / 1024).toFixed(1) + " KB/s";
+      return Math.round(v) + " B/s";
+    }
+
+    function fmtBytes(v) {
+      if (!(v > 0)) return "0 B";
+      if (v >= 1024 * 1024 * 1024) return (v / 1024 / 1024 / 1024).toFixed(2) + " GB";
+      if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + " MB";
+      if (v >= 1024) return (v / 1024).toFixed(1) + " KB";
+      return v + " B";
+    }
+
+    function fmtDuration(sec) {
+      if (!(sec > 0)) return "—";
+      const d = Math.floor(sec / 86400);
+      const h = Math.floor((sec % 86400) / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      if (d) return `${d}d ${h}h`;
+      if (h) return `${h}h ${m}m`;
+      return `${m}m`;
+    }
+
+    // 阈值按「Terminal打字体感」定，不是通用Network标准：120ms 以内基本跟手，300ms 以上明显滞后。
+    function grade(v, good, warn) {
+      if (!(v > 0)) return "";
+      if (v <= good) return "good";
+      if (v <= warn) return "warn";
+      return "bad";
+    }
+
+    function mgroup(title, sub, rows, note) {
+      const wrap = document.createElement("div");
+      wrap.className = "mgroup";
+      const h = document.createElement("h4");
+      h.textContent = title;
+      if (sub) {
+        const s = document.createElement("span");
+        s.className = "sub";
+        s.textContent = sub;
+        h.appendChild(s);
+      }
+      wrap.appendChild(h);
+      for (const [k, v, cls] of rows) {
+        const row = document.createElement("div");
+        row.className = "mrow";
+        const kk = document.createElement("span");
+        kk.className = "k";
+        kk.textContent = k;
+        const vv = document.createElement("span");
+        vv.className = "v" + (cls ? " " + cls : "");
+        vv.textContent = v;
+        row.appendChild(kk);
+        row.appendChild(vv);
+        wrap.appendChild(row);
+      }
+      if (note) {
+        const p = document.createElement("p");
+        p.className = "mnote";
+        p.textContent = note;
+        wrap.appendChild(p);
+      }
+      return wrap;
+    }
+
+    // 活跃 Tab 所在Machine的上游指标（Responsiveness估算用）；没有 Tab 时用第一台。
+    function upstreamFor(name) {
+      const ups = (netSnapshot && netSnapshot.upstreams) || [];
+      return ups.find((u) => u.name === name) || ups[0] || null;
+    }
+
+    function renderNetPanel() {
+      const snap = netSnapshot;
+      const gate = gateRtt.stats();
+      const echo = activeEchoStats();
+      const activeTab = tabs.find((t) => t.id === activeId);
+      const up = snap ? upstreamFor((activeTab && activeTab.machine) || "") : null;
+      const probe = up ? up.probe : null;
+      const hop = probe && probe.tcp.count > 0 ? probe.tcp : (up ? up.handshake : null);
+
+      netBody.innerHTML = "";
+
+      // 小窗只有 20rem 宽，标签一律短写，长句放到分组末尾的说明里。
+      // End to end最直观，放最前面。
+      const totalEstimate = (gate.p50Ms || 0) + ((hop && hop.p50Ms) || 0);
+      netBody.appendChild(mgroup("Responsiveness", "End to end", [
+        ["Key echo median", echo ? fmtMs(echo.p50Ms) : "—", echo ? grade(echo.p50Ms, 120, 300) : ""],
+        ["Key echo P95", echo ? fmtMs(echo.p95Ms) : "—", echo ? grade(echo.p95Ms, 200, 500) : ""],
+        ["Echo samples", echo ? String(echo.count) : "0"],
+        ["Combined network delay", fmtMs(totalEstimate), grade(totalEstimate, 100, 250)],
+      ], "Key echo includes time spent in the remote program, as well as network delay."));
+
+      netBody.appendChild(mgroup("Device ↔ Gateway", "Public network", [
+        ["RTT median", fmtMs(gate.p50Ms), grade(gate.p50Ms, 60, 150)],
+        ["RTT P95 / latest", `${fmtMs(gate.p95Ms)} / ${fmtMs(gate.lastMs)}`, grade(gate.p95Ms, 100, 250)],
+        ["Jitter", fmtMs(gate.jitterMs, gate.count > 1), grade(gate.jitterMs, 20, 60)],
+        ["Samples", String(gate.count)],
+        ["Network", navigator.onLine === false ? "Offline" : (navigator.connection && navigator.connection.effectiveType) || "Online",
+          navigator.onLine === false ? "bad" : "good"],
+      ]));
+
+      // 多Machine时按Machine分段渲染上行段；一台Machine时分组标题与改前一致。
+      const ups = (snap && snap.upstreams) || [];
+      for (const mu of ups) {
+        const mProbe = mu.probe || {};
+        const rows = [
+          ["Terminal host", mu.target || "—"],
+          ["Connection RTT", fmtMs(mProbe.tcp.p50Ms), grade(mProbe.tcp.p50Ms, 30, 120)],
+          ["Jitter", fmtMs(mProbe.tcp.jitterMs, mProbe.tcp.count > 1), grade(mProbe.tcp.jitterMs, 15, 50)],
+          ["First byte incl. server", fmtMs(mProbe.ttfb.p50Ms), grade(mProbe.ttfb.p50Ms, 60, 200)],
+          ["Terminal handshake", fmtMs(mu.handshake.p50Ms), grade(mu.handshake.p50Ms, 30, 120)],
+          ["Probes passed / failed", `${mProbe.okCount} / ${mProbe.failCount}`, mProbe.failStreak > 0 ? "bad" : "good"],
+          ["Upstream response", mProbe.lastStatus ? `HTTP ${mProbe.lastStatus}` : "No response",
+            mProbe.lastStatus === 200 ? "good" : (mProbe.lastStatus ? "warn" : "bad")],
+          ["Active connections", String(mu.conns.active)],
+          ["Failed dial / proxy", `${mu.conns.dialFails} / ${mu.conns.proxyFails}`,
+            mu.conns.dialFails + mu.conns.proxyFails > 0 ? "warn" : ""],
+        ];
+        if (mProbe.failStreak > 0) rows.push(["Consecutive failures", String(mProbe.failStreak), "bad"]);
+        if (mProbe.lastError) rows.push(["Latest error", mProbe.lastError, "bad"]);
+        const multi = ups.length > 1;
+        netBody.appendChild(mgroup(multi ? `Gateway ↔ ${mu.name}` : "Gateway ↔ Terminal", "Private connection", rows,
+          mProbe.intervalSec > 0 ? `Probed every ${mProbe.intervalSec}s.` : "Active probes are disabled; samples come from terminal connections."));
+
+        const tp = mu.throughput;
+        netBody.appendChild(mgroup(multi ? `Throughput · ${mu.name}` : "Gateway throughput", "", [
+          ["Output last 10s", fmtBps(tp.downBps10s)],
+          ["Input last 10s", fmtBps(tp.upBps10s)],
+          ["Output / input now", `${fmtBps(tp.downBps1s)} / ${fmtBps(tp.upBps1s)}`],
+          ["Output / input 1m", `${fmtBps(tp.downBps60s)} / ${fmtBps(tp.upBps60s)}`],
+          ["Total output / input", `${fmtBytes(tp.downBytesTotal)} / ${fmtBytes(tp.upBytesTotal)}`],
+        ]));
+      }
+
+      const live = liveTabNet();
+      if (live.length) {
+        const rows = [];
+        for (const { tab, net } of live) {
+          const label = tab.title + (tab.id === activeId ? " (active)" : "");
+          rows.push([label, net.connected ? "Connected" : "Disconnected", net.connected ? "good" : "bad"]);
+          rows.push(["  Output / input", `${fmtBps(net.downBps)} / ${fmtBps(net.upBps)}`]);
+          rows.push(["  Echo · size", `${net.echo && net.echo.count ? fmtMs(net.echo.p50Ms) : "—"} · ${net.cols}×${net.rows}`,
+            net.echo && net.echo.count ? grade(net.echo.p50Ms, 120, 300) : ""]);
+          if (net.longTaskMs > 0) rows.push(["  Browser stalls", `${net.longTaskMs} ms`, grade(net.longTaskMs, 100, 400)]);
+          if (net.reconnects > 0) rows.push(["  Reconnects last 1m", `${net.reconnects} times`, "warn"]);
+        }
+        netBody.appendChild(mgroup("Terminals", `${live.length} reporting`, rows));
+      } else {
+        netBody.appendChild(mgroup("Terminals", "", [["Status", "No terminal reports yet"]],
+          "New terminals need a few seconds to report data."));
+      }
+
+      if (snap) {
+        netBody.appendChild(mgroup("Gateway", "", [
+          ["Uptime", fmtDuration(snap.gate.uptimeSec)],
+          ["Terminal tabs", String(snap.gate.activeTabs)],
+          ["Memory", `${snap.gate.heapMB} MB`],
+          ["Goroutines", String(snap.gate.goroutines)],
+        ]));
+      } else {
+        netBody.appendChild(mgroup("Gateway", "", [["Status", "Could not read data", "bad"]]));
+      }
+    }
+
+    // 收起Status下不必刷新内容，但小窗还开着，ping 保持高频（收起就是为了继续边用边看）。
+    function netCardOpen() {
+      return netCard.classList.contains("show");
+    }
+
+    async function refreshNetPanel() {
+      try {
+        netSnapshot = await api("/api/netmon");
+      } catch (e) {
+        netSnapshot = null;
+      }
+      renderNetPanel();
+      if (netCardOpen()) {
+        netRefreshTimer = setTimeout(refreshNetPanel, 2000);
+      }
+    }
+
+    function openNetPanel() {
+      if (netCardOpen()) {
+        closeNetPanel(); // 顶栏那个按钮本身就是开关
+        return;
+      }
+      netCard.classList.add("show");
+      netCard.classList.remove("collapsed");
+      document.getElementById("btnNetCollapse").textContent = "－";
+      syncTopBarHeight();
+      clearTimeout(netRefreshTimer);
+      clearTimeout(netPingTimer);
+      renderNetPanel(); // 先用手头数据画一版，别让小窗空着等请求
+      refreshNetPanel();
+      netPingGen += 1;
+      runNetPing(netPingGen);
+    }
+
+    function closeNetPanel() {
+      netCard.classList.remove("show");
+      clearTimeout(netRefreshTimer);
+    }
+
+    document.getElementById("btnNetClose").addEventListener("click", closeNetPanel);
+    document.getElementById("btnNetCollapse").addEventListener("click", (e) => {
+      const collapsed = netCard.classList.toggle("collapsed");
+      e.currentTarget.textContent = collapsed ? "＋" : "－";
+    });
+
+    // 小窗是常驻的，不能夺走Terminal焦点——否则手机上一点它软键盘就收了。
+    // 只拦按钮和标题栏；正文不拦，方便用鼠标选中数字Copy。
+    document.getElementById("netCardHead").addEventListener("pointerdown", (e) => e.preventDefault());
+
+    runNetPing(netPingGen);
+    setInterval(pushNetSample, NET_PUSH_MS);
+
+    // 顶栏先摆上「＋ shell」，Presets程序拉到后再补齐，避免Network慢时顶栏空着。
+    renderLaunchers();
+    loadPresets()
+      .then(renderLaunchers)
+      .catch((e) => toast(e.message || "Could not load presets"));
+
+    // 按账号恢复服务端记忆的全部 Tab；有记忆绝不暗中新开空Terminal或释放睡眠租约。
+    // 账号下零 Tab 时，才自动创建一个空 shell。
+    loadMachines()
+      .then(restoreTabsAfterRefresh)
+      .then(() => {
+        if (!tabs.length) return openTab({ title: "shell" });
+      })
+      .catch((e) => {
+        emptyEl.querySelector("p").textContent = e.message || "Could not open terminal";
+      });
+  </script>
+</body>
+</html>

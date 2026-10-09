@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ShellGate — Sign in</title>
+  <style>
+    :root { --bg: #171819; --fg: #e8e7e3; --muted: #a09f99; --line: #404140; --accent: #d4c9af; --danger: #f0817a; --radius: 4px; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { min-height: 100%; margin: 0; }
+    body { min-height: 100svh; display: grid; place-items: center; padding: 32px; background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+    main { width: min(800px, 100%); display: grid; grid-template-columns: 1fr 280px; column-gap: 64px; align-items: center; padding: 48px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .identity { grid-row: 1 / 6; }
+    .brand { margin: 0; font: 400 clamp(32px, 5vw, 48px)/1.2 ui-monospace, Menlo, monospace; letter-spacing: -0.065em; }
+    .sub { margin: 16px 0 0; color: var(--muted); font-size: 14px; }
+    button { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; width: 100%; padding: 12px 16px; border: 1px solid var(--accent); border-radius: var(--radius); background: transparent; color: var(--fg); font: inherit; font-size: 14px; cursor: pointer; }
+    button:hover:not(:disabled) { background: #292a29; }
+    button:active:not(:disabled) { background: #343532; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+    button:disabled { opacity: .5; cursor: wait; }
+    button svg { width: 18px; height: 18px; }
+    .meta { margin-top: 16px; color: var(--muted); font-size: 12px; }
+    input { display:block; width:100%; margin:6px 0 16px; padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:var(--bg); color:var(--fg); font:inherit; }
+    details { grid-column:2; margin-top:20px; font-size:13px; }
+    details summary { cursor:pointer; color:var(--muted); }
+    form { margin-top:20px; }
+ #passwordLogin { margin:0 0 16px; }
+
+ .secondary { border-color:var(--line); font-size:13px; margin-top:12px; }
+    label { display:block; }
+    #msg { grid-column: 2; margin-top: 12px; font-size: 13px; line-height: 1.6; color: var(--danger); overflow-wrap: anywhere; }
+    #msg:empty { margin: 0; }
+    @media (max-width: 640px) { main { grid-template-columns: 1fr; gap: 0; padding: 32px 0; width: min(360px, 100%); } .identity { grid-row: auto; margin-bottom: 48px; } #msg, details { grid-column: 1; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="identity"><h1 class="brand">shell-gate</h1>
+    <p class="sub">Your terminal workspace</p></div>
+    <form id="passwordLogin" hidden>
+      <label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="username" required />
+      <label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" required />
+      <button type="submit">Sign in</button>
+    </form>
+    <button id="btn" class="secondary" type="button" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="3" y="11" width="18" height="10" rx="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        <circle cx="12" cy="16" r="1.4" fill="currentColor" stroke="none" />
+      </svg>
+      Sign in with a passkey
+    </button>
+    <div id="accessNote" class="meta">Access is limited to invited accounts.</div>
+    <details id="enroll" hidden><summary>Set up or recover an account</summary>
+      <form id="register">
+        <h2 style="font-size:16px;font-weight:400;margin:0 0 20px">Set up or recover an account</h2>
+        <label for="email">Email</label><input id="email" type="email" autocomplete="email" required />
+        <label for="invitation">Invitation code</label><input id="invitation" type="password" autocomplete="off" required />
+        <label for="newPassword">New password</label><input id="newPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" placeholder="12 or more characters" required />
+        <button type="submit">Set password and sign in</button>
+        <button id="registerPasskey" class="secondary" type="button">Use a passkey instead · no password needed</button>
+      </form>
+    </details>
+    <div id="msg" role="status" aria-live="polite"></div>
+  </main>
+  <script type="module">
+    const btn = document.getElementById("btn");
+    const msg = document.getElementById("msg");
+    const form = document.getElementById("register");
+    const show = (text) => { msg.textContent = text || ""; };
+    const decode = (value) => Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const encode = (value) => btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    async function post(path, body = {}) {
+      const res = await fetch(path, { method: "POST", credentials: "same-origin", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body) });
+      const value = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(value.message || "Request failed. Please try again.");
+      return value;
+    }
+    function serialize(credential) {
+      const response = { clientDataJSON: encode(credential.response.clientDataJSON) };
+      for (const key of ["attestationObject", "authenticatorData", "signature", "userHandle"]) {
+        if (credential.response[key]) response[key] = encode(credential.response[key]);
+      }
+      if (credential.response.getTransports) response.transports = credential.response.getTransports();
+      return { id: credential.id, rawId: encode(credential.rawId), type: credential.type, response, clientExtensionResults: credential.getClientExtensionResults() };
+    }
+    function prepare(options) {
+      const p = options.publicKey;
+      p.challenge = decode(p.challenge);
+      if (p.user) p.user.id = decode(p.user.id);
+      for (const key of ["allowCredentials", "excludeCredentials"]) {
+        if (p[key]) p[key] = p[key].map((c) => ({ ...c, id: decode(c.id) }));
+      }
+      return options;
+    }
+    async function busy(action) {
+      show(""); btn.disabled = true;
+      for (const el of document.querySelectorAll("button")) el.disabled = true;
+      try { await action(); }
+      catch (e) { show(e.name === "NotAllowedError" ? "The passkey request was cancelled or timed out. Try again when ready." : e.message || "Sign-in failed."); }
+      finally { btn.disabled = false; for (const el of document.querySelectorAll("button")) el.disabled = false; }
+    }
+    async function main() {
+      const res = await fetch("/api/config", {credentials:"same-origin"});
+      if (!res.ok) throw new Error("Could not load sign-in settings. Please reload.");
+      const cfg = await res.json();
+      if (cfg.authMode === "local") {
+        document.getElementById("passwordLogin").hidden = false;
+        document.getElementById("passwordLogin").addEventListener("submit", (e) => { e.preventDefault(); busy(async () => {
+          await post("/api/password/login", {email:document.getElementById("loginEmail").value,password:document.getElementById("loginPassword").value});
+          location.replace("/");
+        }); });
+        form.addEventListener("submit", (e) => { e.preventDefault(); busy(async () => {
+          await post("/api/password/register", {email:document.getElementById("email").value,token:document.getElementById("invitation").value,password:document.getElementById("newPassword").value});
+          document.getElementById("newPassword").value = "";
+          location.replace("/");
+        }); });
+        const passkeySupported=window.isSecureContext && !!window.PublicKeyCredential;
+        btn.hidden=!passkeySupported;
+        document.getElementById("registerPasskey").hidden=!passkeySupported;
+        document.getElementById("enroll").hidden = false;
+        document.getElementById("enroll").addEventListener("toggle", (e) => {
+          const open = e.currentTarget.open;
+          document.getElementById("passwordLogin").hidden = open;
+          btn.hidden = open || !passkeySupported;
+          document.getElementById("accessNote").hidden = open;
+          e.currentTarget.querySelector("summary").textContent = open ? "Back to sign in" : "Set up or recover an account";
+        });
+        btn.addEventListener("click", () => busy(async () => {
+          const options = prepare(await post("/api/passkeys/login/begin"));
+          const credential = await navigator.credentials.get(options);
+          await post("/api/passkeys/login/finish", serialize(credential));
+          location.replace("/");
+        }));
+        document.getElementById("registerPasskey").addEventListener("click", () => { if(!document.getElementById("email").reportValidity() || !document.getElementById("invitation").reportValidity()) return; busy(async () => {
+          const options = prepare(await post("/api/passkeys/register/begin", {email:document.getElementById("email").value, token:document.getElementById("invitation").value}));
+          const credential = await navigator.credentials.create(options);
+          await post("/api/passkeys/register/finish", serialize(credential));
+          document.getElementById("invitation").value = "";
+          location.replace("/");
+        }); });
+      } else {
+        const { createClient } = await import("/__shellgate/external-auth.js");
+        const supabase = createClient(cfg.supabaseUrl, cfg.anonKey, {auth:{experimental:{passkey:true},persistSession:false,autoRefreshToken:false}});
+        btn.addEventListener("click", () => busy(async () => {
+          const {data,error} = await supabase.auth.signInWithPasskey();
+          if (error) throw error;
+          if (!data?.session?.access_token) throw new Error("The provider did not return a session.");
+          await post("/api/session", {access_token:data.session.access_token});
+          location.replace("/");
+        }));
+      }
+      btn.disabled = false;
+    }
+    main().catch((e) => { show(e.message || "Could not initialize sign-in."); btn.disabled = true; });
+  </script>
+</body>
+</html>
