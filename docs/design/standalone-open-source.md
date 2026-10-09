@@ -63,3 +63,5 @@ Cross-platform source checkouts retain LF line endings through [Git attributes](
 CI matrix failures do not cancel checks on the other supported operating systems; all platform results remain available for diagnosis.
 
 Release-stage Windows CI exposed two LF-sensitive source assertions and a Unix-only path fixture. LF checkout attributes and native absolute-path/executable validation now cover both wake and lease hooks. Local complete race, vet and lint checks passed after the fixes. Storage-failure tests also confirm that preset create/update return a generic service error while validation remains a distinct client error.
+
+A zero elapsed TCP connection interval is a valid measurement at clock resolution. Keep that sample when both timestamps exist; reject only missing or reversed timestamps. Windows CI intermittently exposed the previous strict-positive interval filter through a missing sample count. Preserve the count assertion and fix collection rather than weakening the test.

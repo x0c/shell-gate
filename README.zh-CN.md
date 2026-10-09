@@ -68,7 +68,7 @@ $env:SHELL_ALLOWED_EMAILS='you@example.com'; $env:SHELL_TTYD_URL='http://127.0.0
 
 [部署说明](docs/DEPLOYMENT.md) 包含 HTTPS、多主机、独立服务、备份和升级；[配置示例](.env.example) 提供初始配置；[架构说明](docs/ARCHITECTURE.md) 描述适配器边界和扩展要求。源码构建需要 Go 1.26.9+，运行 `go build ./cmd/shell-gate`。
 
-**信任边界**：被邀请的人拥有目标终端账号的系统权限。门禁隔离 Tab 和预置数据，不隔离共享系统账号中的文件和进程。ttyd 必须保持私有；需要用户隔离时，分别使用系统账号、容器或主机。详见[安全说明](SECURITY.md)。
+**信任边界**：被邀请的人拥有目标终端账号的系统权限。门禁隔离 Tab 和预置数据，不隔离共享系统账号中的文件和进程。所有获准账号都能访问配置中的每台机器。ttyd 必须保持私有；需要用户隔离时，分别部署门禁与 ttyd，使用不同的白名单、域名和系统账号、容器或主机。详见[安全说明](SECURITY.md)。
 
 普通 shell Tab 在重连后恢复启动定义，不保证恢复原来的 shell 进程。自带会话恢复的程序可以自然接回。
 

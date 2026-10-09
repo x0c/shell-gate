@@ -1,8 +1,10 @@
 # Changelog
 
-## v0.1.0
+## v0.1.1
 
 ### English
+
+- Keep valid zero-duration TCP samples and enforce portable source checkouts and executable-hook validation.
 
 - Standalone email/password sign-in, optional passkeys, one-use operator invitations, password recovery and persistent sessions.
 - Default SQLite storage, optional PostgreSQL and external GoTrue adapters; no private module checkout or browser CDN.
@@ -12,6 +14,8 @@
 - Preserve per-machine tab selection, persistent tabs, interactive login shells, canvas rendering and mobile keyboard behavior.
 
 ### 简体中文
+
+- 保留有效的零耗时 TCP 样本，并统一跨平台源码换行与可执行脚本校验。
 
 - 提供本地邮箱密码登录、可选通行密钥、一次性邀请、密码恢复和持久会话，可以独立部署。
 - 默认使用 SQLite，可选 PostgreSQL 和外部 GoTrue 适配器；不依赖私有模块或浏览器 CDN。

@@ -1,6 +1,6 @@
 # Security
 
-ShellGate grants access to a real shell. Only invite people who are trusted to use the configured terminal account. Account-owned tabs and presets are isolated by the gateway, but ttyd processes share the upstream OS account. Deploy separate OS accounts, containers or machines when users must not share files, processes or privileges.
+ShellGate grants access to a real shell. Only invite people who are trusted to use the configured terminal account. Account-owned tabs and presets are isolated by the gateway, but ttyd processes share the upstream OS account. All allowed accounts can access every configured machine; there is no per-account machine access policy. When groups must not share files, processes or privileges, deploy separate gateway + ttyd stacks with distinct allowlists and domains, backed by separate OS accounts, containers or machines.
 
 Local account/password sign-in is the default; passkeys are optional. All remote login requires a trusted HTTPS origin, with localhost as the development exception. Registration requires an operator-created, expiring, one-use invitation for an allowed email. The invitation stores only a hash. WebAuthn validates origin, RP ID, challenge and user verification; sessions use a separate persistent signing key, an expiry and HttpOnly cookies. Restarting during an unfinished passkey ceremony requires starting that ceremony again. Local ceremonies support one gateway instance; use the external identity adapter for multiple edges.
 

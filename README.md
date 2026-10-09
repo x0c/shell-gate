@@ -68,7 +68,7 @@ The default stack needs no remote service at runtime. Initial downloads require 
 
 See [deployment](docs/DEPLOYMENT.md) for HTTPS, multiple hosts, direct services, backups and upgrades; [.env.example](.env.example) for initial settings; and [architecture](docs/ARCHITECTURE.md) for adapters and extension contracts. Build locally with Go 1.26.9+ using `go build ./cmd/shell-gate`.
 
-**Trust boundary:** invited people receive the configured terminal account's OS privileges. Gateway account isolation protects tabs and presets; it does not isolate files or processes within a shared OS account. Keep ttyd private and use separate accounts/containers/hosts when users require isolation. See [security](SECURITY.md).
+**Trust boundary:** invited people receive the configured terminal account's OS privileges. Gateway account isolation protects tabs and presets; it does not isolate files or processes within a shared OS account. All allowed accounts can access every configured machine. Keep ttyd private; use separate gateway + ttyd stacks with distinct allowlists/domains and OS accounts/containers/hosts when users require isolation. See [security](SECURITY.md).
 
 Plain shell tabs restore their launch definition after reconnect, rather than the exact old shell process. Programs with their own session recovery can reconnect naturally.
 

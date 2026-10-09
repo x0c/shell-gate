@@ -472,7 +472,7 @@ func (m *netMonitor) probeOnce(ctx context.Context) {
 	// 上游首页很小，读完丢掉即可；不读干净会让连接无法正常收尾。
 	_, _ = readAndDiscard(resp)
 
-	if !connectStart.IsZero() && connectDone.After(connectStart) {
+	if !connectStart.IsZero() && !connectDone.IsZero() && !connectDone.Before(connectStart) {
 		m.probeTCP.addDuration(connectDone.Sub(connectStart))
 	}
 	if !firstByte.IsZero() {
