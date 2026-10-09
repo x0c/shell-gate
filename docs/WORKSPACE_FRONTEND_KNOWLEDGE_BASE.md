@@ -81,7 +81,7 @@ sequenceDiagram
     P->>K: onClose回调 schedule()
     K->>K: 前台+联网? 400ms后 attempt() : 3000ms后重试
     K->>K: recentReloads() 60s内≥5次? giveUp(): doReload()
-    K->>B: location.reload()（反代重注启动命令，Corral自动接回）
+    K->>B: location.reload()（反代重注启动命令，自带接回的程序自动接回）
     B-->>S: 新WS握手，恢复终端
 ```
 
@@ -220,7 +220,7 @@ sequenceDiagram
 - 触发器：`liveConn.onClose` 回调 `schedule()`；`visibilitychange`/`online`/
   `pageshow` 回前台或网络恢复时 `nudge()`。
 - 动作：`location.reload()` 重载 ttyd 页，反代重注启动命令，
-  Corral 类预置自动接回原会话。
+  自带接回的预置程序自动接回原会话。
 - 护栏：前台＋联网才 400ms 快重连，否则 3000ms 等；`sessionStorage`
   键 `__shellgate_reloads` 做 60s 内最多 5 次护栏（`GUARD_WINDOW_MS`/
   `GUARD_MAX`）；超限 `giveUp()` 写黄色提示并用 `{once:true}` 监听等用户
@@ -273,8 +273,8 @@ sequenceDiagram
   不再依赖隐藏输入框默认行为）。
 - 图片分支：压缩（复用 `compressCanvasToBlob()`）→ base64 → 包哨兵协议
   `IMG_SENTINEL_BEGIN`＋base64＋`IMG_SENTINEL_END`
-  （`␞CORRAL_IMG_BEGIN␞`/`␞CORRAL_IMG_END␞`，与 Corral `embed.py` 的
-  `extract_pasted_image` 跨仓库约定；Corral 解析仍认旧 `PICKUP_IMG_*` 对，
+  （`␞CORRAL_IMG_BEGIN␞`/`␞CORRAL_IMG_END␞`，与上游 TUI 的
+  `extract_pasted_image` 跨仓库约定；对端解析仍认旧 `PICKUP_IMG_*` 对，
   改任一侧同步另一侧）经 `term.paste()` 送括号粘贴通道。
 - 护栏：遍历全部 `image/*` 候选逐个试 `getAsFile()`，拿到首个非空 File 即用。
   （禁"只取第一个类型"——Chrome 对截图双格式中的 `image/jpeg` 候选稳定
@@ -295,13 +295,13 @@ sequenceDiagram
 
 - 触发器甲：物理 Ctrl+C 的捕获期 `keydown`。有 xterm 原生选区
   （`term.getSelection()` 非空）时 `preventDefault()`＋`stopPropagation()` 后
-  `writeText()`；空选区时不拦，放行给远端（Corral 自判复制/中断）。
+  `writeText()`；空选区时不拦，放行给远端（上游 TUI 自判复制/中断）。
 - 触发器乙：浏览器标准 `copy` 事件（Command+C/macOS 菜单复制的唯一可靠入口，
   不依赖 keydown 是否送达）。有原生选区时同步写 `e.clipboardData`（Safari
   比异步 Clipboard API 可靠）；无选区时 `sendToPty(term,"\x03")` 把复制动作
-  交给 Corral 判断"有选区则经 OSC 52 复制、无则中断"。
-- 护栏：这是与 §3.10 完全独立的第二条路径（`term.getSelection()` 在 Corral
-  全屏 TUI 下恒空但可见高亮由 Corral 自绘）。"复制不出来"先分清用户要哪条，
+  交由上游 TUI 判断"有选区则经 OSC 52 复制、无则中断"。
+- 护栏：这是与 §3.10 完全独立的第二条路径（`term.getSelection()` 在全屏
+  TUI 下恒空但可见高亮由上游自绘）。"复制不出来"先分清用户要哪条，
   再动手。
 
 ### §3.12 `installDisplayRepair()` —— 场景：WebGL 字符贴图损坏的手动＋自动自愈
@@ -325,7 +325,7 @@ sequenceDiagram
 - 排程：1s 窗内 ≥2 次整屏（`BURST_WINDOW_MS`/`BURST_MIN_REDRAWS`）即爆发，
   安静 `REPAIR_QUIET_MS`(180ms) 后修；爆发超 `REPAIR_MAX_WAIT_MS`(2500ms)
   强制修；单次整屏后无爆发则 `REPAIR_LAZY_MS`(8000ms) 懒修且不重计时
-  （避开 Corral 每 2s 空闲查询心跳冲掉计时器）；隐藏页不修；
+  （避开上游 TUI 每 2s 空闲查询心跳冲掉计时器）；隐藏页不修；
   两次自动修至少间隔 `REPAIR_MIN_INTERVAL_MS`(800ms)。
 - 护栏：自动修埋点 15s 内只报一次（`REPAIR_AUTO_REPORT_MS`），
   避免刷满 `debug-log`。
@@ -404,7 +404,7 @@ sequenceDiagram
   （实测 20 次按键只落 1 个样本）；80ms 挡得住刷屏也留得住日常打字。
 - 查询帧过滤 `isTerminalQueryOnlyFrame()`：整帧去掉终端查询序列
   （tmux 透传 `ESC P…ESC \` 非贪婪、OSC 颜色查询 `]N;?`、CSI DSR `[?…n`）
-  后无剩余即纯查询帧。Corral 空闲每 2.00s 一帧 `?996n`＋`]11;?`，
+  后无剩余即纯查询帧。上游 TUI 空闲每 2.00s 一帧 `?996n`＋`]11;?`，
   TUI 大量按键无重绘（实测 30 次 23 次无回显），误记会把 P95 顶到 500ms+。
 - 归因上限 `ECHO_ATTRIBUTION_MS`(600ms)：超限样本丢弃不记值。
   依据见排查记录：纯网络往返约 30ms，重度排队 400ms 内，一倍余量；
@@ -449,7 +449,7 @@ sequenceDiagram
   （来源：`docs/troubleshooting/2026-08-20-tui-display-corruption.md` 引用对照
   实测 canvas P50 70.7ms / WebGL P50 26.5ms）。
 - 根因：ttyd 1.7.7 捆 xterm 5.4.0 WebGL 纹理图集，CJK 宽字符在图集 LRU 驱逐
-  时左右半格不能原子清空，Corral 流式中文局部行更新下 `isFullViewportRedraw()`
+  时左右半格不能原子清空，上游 TUI 流式中文局部行更新下 `isFullViewportRedraw()`
  （半屏判据）经常判不中，自愈（`clearTextureAtlas`＋8s 懒修）是事后补洞。
   上游修复在 `@xterm/xterm 6.1.0-beta.289`（非 7.0.0），ttyd 侧（含 master）
   未捆到；门禁换不了 ttyd 内置 xterm（webpack 打进二进制），故默认规避。
@@ -574,8 +574,8 @@ node --test internal/server/web/enhance_query_frame_test.mjs
 - Mac 唤醒（链路域）：UI 侧约束只有两条——`ensureMachineReady()` 唤醒等待
   文案（250ms 后 toast）与唤醒后 `reloadMachinePanes()`；唤醒网关、
   presence 闸门归链路域。
-- Corral 跨仓库：图片哨兵 `CORRAL_IMG_*`（门禁发出，Corral 兼容旧
-  `PICKUP_IMG_*`）、主题跟随（Corral 每 2s 经 OSC 11 轮询背景色，
+- 上游 TUI 跨仓库：图片哨兵 `CORRAL_IMG_*`（门禁发出，对端兼容旧
+  `PICKUP_IMG_*`）、主题跟随（上游 TUI 定期经 OSC 11 轮询背景色，
   门禁唯一义务是"终端如实回答"，见 §2.5 与排查记录）。
 
 ## §9 Missing user experience input（禁止编造用户问答）

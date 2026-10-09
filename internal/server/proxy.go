@@ -74,24 +74,24 @@ func newTTYDProxy(target *url.URL, mon *netMonitor) *httputil.ReverseProxy {
 // 背景：上游 ttyd 的启动脚本收到 arg 后走的是 `bash -lc "$*"`，只读 /etc/profile 与
 // ~/.profile，**不读 ~/.bashrc**；而用户手敲命令用的是交互式 shell，~/.bashrc 里的
 // PATH 追加、别名、函数、各类工具初始化全都生效。两者 PATH 顺序不同，同名命令会解析
-// 到不同副本——2026-08-02 实测：预置的 subswap 命中 ~/.cargo/bin 下的 0.3.25 旧版，
-// 而终端里敲到的是 ~/.local/bin 下的 1.4.11 新版。加 -i 让 ~/.bashrc 也走一遍即对齐。
+// 到不同副本——实测曾出现：一次性预置命令命中非交互 PATH 下的旧版，
+// 而终端里敲到的是交互 PATH 下的新版。加 -i 让 ~/.bashrc 也走一遍即对齐。
 //
 // 命令跑完必须落回交互 shell，不能让 shell 直接退出：终端页面的唯一进程就是这个 shell，
 // 它一退出 ttyd 就关掉 WebSocket，而 enhance.js 的断线恢复层会重载页面、反代又重新注入
-// 同一条启动命令——2026-08-02 实测 subswap（会正常结束的一次性命令）因此陷入
-// 「跑完→断开→自动重连→再跑一遍」的死循环。常驻型程序（Corral）不退出所以从未暴露。
+// 同一条启动命令——实测某会正常结束的一次性命令因此陷入
+// 「跑完→断开→自动重连→再跑一遍」的死循环。常驻型程序（如全屏 TUI）不退出所以从未暴露。
 // 末尾用换行而不是 `;` 拼接，避免命令以注释或后台符号结尾时把收尾语句吞掉。
 //
 // **换行只能是 bash 自己展开出来的，绝不能是 URL 里的真实换行字符**：整条命令是作为
 // ttyd 的 `arg` 查询参数传过去的，2026-08-03 实测只要参数里出现 `%0A`，ttyd 依赖的
-// libwebsockets 会直接判握手失败（日志 `hs0405 has failed the connection`，门禁侧看到
+// libwebsockets 会直接判握手失败（日志 `hs0405 has failed the connection`，网关侧看到
 // 反代 EOF → 浏览器 502），带命令的 Tab 全部连不上，只有空 shell 还能开。所以这里用
 // bash 的 ANSI-C 引用 `$'...'`，URL 里只是反斜杠加 n 两个普通字符，换行由 bash 展开。
 //
-// 预置命令与收尾交互壳都跟账号的 $SHELL（Mac 上是 zsh+starship，终端节点是 bash+ble.sh）。
+// 预置命令与收尾交互壳都跟账号的 $SHELL（Mac 上如 zsh + 提示符主题，Linux 上如 bash + 行编辑增强）。
 // 必须用 `"$SHELL" -lic`，不能写死 bash：否则 Mac 点预置会整段跑在 bash 里，看不到
-// zsh 插件；终端节点 $SHELL 本就是 bash，行为与旧写法一致。ANSI-C 引用 `$'...'` 在
+// zsh 插件；Linux 上 $SHELL 本就是 bash，行为与旧写法一致。ANSI-C 引用 `$'...'` 在
 // bash/zsh 都可用。空命令（「＋ shell」）也要注入 arg：上游无参脚本会开 bash -l，
 // Mac 进不了默认 zsh。2026-09-05 起不再导出 SHELLGATE_WEB_TERM——网页端默认还原
 // 本机插件，接受回显变慢。

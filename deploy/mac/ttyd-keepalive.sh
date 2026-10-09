@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mac 网页终端（ttyd）保活：等 ZeroTier 地址就绪后启动。
+# Mac 网页终端（ttyd）保活：等隧道地址（如 ZeroTier）就绪后启动。
 # 由 LaunchAgent KeepAlive 托管；干净退出也会被拉起。
 set -uo pipefail
 
@@ -14,8 +14,8 @@ mkdir -p "${LOG_DIR}"
 if [[ -z "${TTYD_BIN}" ]]; then
   # Prefer the ShellGate-built binary (WebSocket compression). Homebrew
   # libwebsockets 5.0 ships LWS_WITHOUT_EXTENSIONS and cannot negotiate
-  # permessage-deflate — that mismatch caused Mac Corral line-by-line refresh
-  # over the gate while Suzhou stayed smooth (2026-09-10).
+  # permessage-deflate — that mismatch caused fullscreen-TUI line-by-line refresh
+  # over the gateway while a direct-LAN path stayed smooth (2026-09-10).
   for candidate in \
     "${HOME}/.local/bin/shell-gate-ttyd" \
     "${HOME}/.local/share/shell-gate/ttyd-1.7.7-lws-4.3.10-deflate/bin/ttyd" \
@@ -44,7 +44,7 @@ fi
 IFCONFIG="${IFCONFIG_BIN:-/sbin/ifconfig}"
 LSOF="${LSOF_BIN:-/usr/sbin/lsof}"
 
-# 等 ZeroTier 地址出现在本机（睡眠醒来后接口可能晚几秒）
+# 等隧道地址出现在本机（睡眠醒来后接口可能晚几秒）
 for _ in $(seq 1 60); do
   if "${IFCONFIG}" 2>/dev/null | grep -q "inet ${ADDR} "; then
     break
@@ -71,11 +71,11 @@ done
 
 echo "[keepalive] 启动 ttyd：${TTYD_BIN} ${ADDR}:${PORT}"
 # -t rendererType=canvas 必须是一个参数值
-# -m 0：不设客户端上限（旧值 12 对多 Corral Tab 太紧，外网重连风暴时直接拒连/秒断）。
-# -P 30：默认 ping=5 / hangup=10。Mac 上 Corral 全屏刷新时 ZT→门禁上行易堵，
-# libwebsockets 会在 10s 内因 VALIDITY TIMEOUT 踢掉 WS（日志 peer 为门禁节点），
+# -m 0：不设客户端上限（旧值 12 对多 Tab 太紧，外网重连风暴时直接拒连/秒断）。
+# -P 30：默认 ping=5 / hangup=10。Mac 上全屏 TUI 刷新时隧道→网关上行易堵，
+# libwebsockets 会在 10s 内因 VALIDITY TIMEOUT 踢掉 WS（日志 peer 为网关），
 # 浏览器立刻断联要 reconnect，并留下孤儿 shell。拉长到 30/37 扛住突发拥堵。
-# 2026-09-10 外网连 Mac 实测：备用门禁门禁路径反复 validity timeout；终端节点同入口正常。
+# 2026-09-10 外网连 Mac 实测：经网关的外网路径反复 validity timeout；中继侧同入口直连对照正常。
 exec "${TTYD_BIN}" \
   -W -a -m 0 \
   -P 30 \

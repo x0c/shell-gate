@@ -39,7 +39,7 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("打开测试库失败: %v", err)
 	}
-	st.Defaults = []store.DefaultPreset{{Name: "corral", Command: "corral"}, {Name: "subswap", Command: "subswap"}}
+	st.Defaults = []store.DefaultPreset{{Name: "example-tui", Command: "example-tui"}, {Name: "example-task", Command: "example-task"}}
 	t.Cleanup(func() { _ = st.Close() })
 	cfg := Config{
 		Listen:        "127.0.0.1:0",
@@ -292,7 +292,7 @@ func TestProxyRewriteInjectsTrustedAuthHeaderAndCommand(t *testing.T) {
 	s := newTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	req = req.WithContext(context.WithValue(req.Context(), proxyUserKey{}, "operator@example.com"))
-	req = req.WithContext(context.WithValue(req.Context(), proxyCmdKey{}, "corral"))
+	req = req.WithContext(context.WithValue(req.Context(), proxyCmdKey{}, "example-tui"))
 	req.Header.Set(authHeaderName, "attacker@evil.com")
 	req.URL.RawQuery = "arg=evil"
 	out := req.Clone(req.Context())
@@ -301,14 +301,14 @@ func TestProxyRewriteInjectsTrustedAuthHeaderAndCommand(t *testing.T) {
 		t.Fatalf("期望注入已校验邮箱，得到 %q", got)
 	}
 	// Command要包成「登录 + 交互」shell，PATH/别名才和用户手敲一致；Presets与收尾都跟 $SHELL。
-	if got := out.URL.Query().Get("arg"); got != `exec "$SHELL" -lic $'corral\nexec "$SHELL" -li'` {
-		t.Fatalf("期望注入交互式登录 shell 包装后的 corral，得到 %q", got)
+	if got := out.URL.Query().Get("arg"); got != `exec "$SHELL" -lic $'example-tui\nexec "$SHELL" -li'` {
+		t.Fatalf("期望注入交互式登录 shell 包装后的 example-tui，得到 %q", got)
 	}
 }
 
 func TestInteractiveLoginCommandQuoting(t *testing.T) {
 	cases := map[string]string{
-		"corral":             `exec "$SHELL" -lic $'corral\nexec "$SHELL" -li'`,
+		"example-tui":        `exec "$SHELL" -lic $'example-tui\nexec "$SHELL" -li'`,
 		`echo "hi"`:          `exec "$SHELL" -lic $'echo "hi"\nexec "$SHELL" -li'`,
 		`echo 'a' && echo b`: `exec "$SHELL" -lic $'echo \'a\' && echo b\nexec "$SHELL" -li'`,
 		`grep '\d' x`:        `exec "$SHELL" -lic $'grep \'\\d\' x\nexec "$SHELL" -li'`,
@@ -322,10 +322,10 @@ func TestInteractiveLoginCommandQuoting(t *testing.T) {
 	}
 }
 
-// 最终交互壳必须跟账号 $SHELL，才能还原本机插件（Mac zsh+starship、终端节点 bash+ble.sh）。
+// 最终交互壳必须跟账号 $SHELL，才能还原本机插件（Mac 默认 shell、Linux 侧行编辑增强）。
 // 2026-09-05 起禁止再导出 SHELLGATE_WEB_TERM 去跳过插件。
 func TestInteractiveLoginCommandUsesLoginShell(t *testing.T) {
-	for _, cmd := range []string{"", "corral", "subswap"} {
+	for _, cmd := range []string{"", "example-tui", "example-task"} {
 		got := interactiveLoginCommand(cmd)
 		if strings.Contains(got, "SHELLGATE_WEB_TERM") {
 			t.Fatalf("Command %q 不得再导出网页Terminal跳过标记，得到 %q", cmd, got)
@@ -351,7 +351,7 @@ func TestProxyInjectsArgForEmptyCommand(t *testing.T) {
 
 // 一次性Command跑完后必须落回交互 shell，否则Terminal进程退出会触发自动重连死循环。
 func TestInteractiveLoginCommandKeepsShellAlive(t *testing.T) {
-	got := interactiveLoginCommand("subswap")
+	got := interactiveLoginCommand("example-task")
 	if !strings.HasSuffix(got, `\nexec "$SHELL" -li'`) {
 		t.Fatalf("Command包装缺少收尾的交互 shell，得到 %q", got)
 	}
@@ -360,7 +360,7 @@ func TestInteractiveLoginCommandKeepsShellAlive(t *testing.T) {
 // 注入给 ttyd 的 arg 里绝不能出现真实控制字符：URL 里带 %0A 会让 libwebsockets
 // 直接判握手失败，所有带Command的 Tab 都连不上（2026-08-03 线上实测）。
 func TestInteractiveLoginCommandHasNoRawControlChars(t *testing.T) {
-	got := interactiveLoginCommand("subswap")
+	got := interactiveLoginCommand("example-task")
 	if strings.ContainsAny(got, "\n\r\t") {
 		t.Fatalf("包装结果不得含真实换行/回车/制表符，得到 %q", got)
 	}
@@ -375,7 +375,7 @@ func TestCreateTabAndTermRequiresSession(t *testing.T) {
 	_ = s.store.EnsureDefaults("operator@example.com")
 	list, err := s.store.List("operator@example.com")
 	if err != nil || len(list) < 2 {
-		t.Fatalf("默认Presets应包含 corral/subswap: %v %#v", err, list)
+		t.Fatalf("默认Presets应包含 example-tui/example-task: %v %#v", err, list)
 	}
 	req := withSession(httptest.NewRequest(http.MethodPost, "/api/tabs", strings.NewReader(`{"presetId":"`+list[0].ID+`"}`)), token)
 	w := httptest.NewRecorder()
@@ -1295,7 +1295,7 @@ func TestNetmonSampleRoundTrip(t *testing.T) {
 	sample := `{"clientId":"page-1","device":"mobile","online":true,
 		"gateRtt":{"count":10,"p50Ms":42.5,"p95Ms":88},
 		"echoRtt":{"count":6,"p50Ms":130.5},
-		"tabs":[{"tabId":"t1","title":"corral","connected":true,"downBps":2048,"upBps":16}]}`
+		"tabs":[{"tabId":"t1","title":"example-tui","connected":true,"downBps":2048,"upBps":16}]}`
 	req := withSession(httptest.NewRequest(http.MethodPost, "/api/netmon/sample", strings.NewReader(sample)), token)
 	w := httptest.NewRecorder()
 	s.handleNetmonSample(w, req)
@@ -1320,7 +1320,7 @@ func TestNetmonSampleRoundTrip(t *testing.T) {
 	if c.ClientID != "page-1" || c.GateRTT.P50Ms != 42.5 || c.EchoRTT.P50Ms != 130.5 {
 		t.Fatalf("浏览器上报没原样保留: %+v", c)
 	}
-	if len(c.Tabs) != 1 || c.Tabs[0].Title != "corral" {
+	if len(c.Tabs) != 1 || c.Tabs[0].Title != "example-tui" {
 		t.Fatalf("每个Terminal tabs的观测应保留: %+v", c.Tabs)
 	}
 	if c.AgeMs < 0 {
@@ -1379,7 +1379,7 @@ func TestNetmonSampleGoesToPerfLog(t *testing.T) {
 func TestTabStoreCountFor(t *testing.T) {
 	ts := testTabDB(t)
 	mustCreateTab(t, ts, "operator@example.com", "default", "a", "")
-	mustCreateTab(t, ts, "operator@example.com", "default", "b", "corral")
+	mustCreateTab(t, ts, "operator@example.com", "default", "b", "example-tui")
 	mustCreateTab(t, ts, "other@example.com", "default", "c", "")
 	if got, err := ts.CountFor("OPERATOR@example.com"); got != 2 || err != nil {
 		t.Fatalf("应只数自己的窗口（且不区分邮箱大小写），得到 %d", got)
@@ -1640,7 +1640,7 @@ func TestMain(m *testing.M) {
 
 // 回显计时口径：Terminal能力查询帧不得被当成按键回显。
 //
-// 背景（2026-08-05）：全屏 TUI 会定时向Terminal发查询——实测 Corral 空闲时每 2.00 秒发一帧
+// 背景（2026-08-05）：全屏 TUI 会定时向Terminal发查询——实测空闲时每 2.00 秒发一帧
 // `\x1b[?996n` + `\x1b]11;?`。而 TUI 里大量按键根本不触发重绘（实测 30 次按键 23 次无回显），
 // 计时器就一路等到那个查询帧并记成「回显」，Samples值可达 2000ms，把 P95 顶到 500ms+，
 // 而用户实际打字并不卡。正则逻辑 Go 侧断言不出对错，交给 node 真跑一遍。
@@ -2016,7 +2016,7 @@ func TestTabStoreSurvivesProcessReload(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := mustTabStore(t, st)
-	tab := mustCreateTab(t, first, "operator@example.com", "linux", "corral", "corral")
+	tab := mustCreateTab(t, first, "operator@example.com", "linux", "example-tui", "example-tui")
 	_ = st.Close()
 
 	st2, err := store.Open(dbPath)
@@ -2026,7 +2026,7 @@ func TestTabStoreSurvivesProcessReload(t *testing.T) {
 	t.Cleanup(func() { _ = st2.Close() })
 	reloaded := mustTabStore(t, st2)
 	got, ok := reloaded.Get(tab.ID)
-	if !ok || got.Title != "corral" || got.Command != "corral" || got.Machine != "linux" {
+	if !ok || got.Title != "example-tui" || got.Command != "example-tui" || got.Machine != "linux" {
 		t.Fatalf("门禁重启后必须从库恢复同一 Tab: ok=%v got=%#v", ok, got)
 	}
 	listed, err := reloaded.ListFor("OPERATOR@example.com")
@@ -2172,7 +2172,7 @@ func TestCreateTabRoutesToMachine(t *testing.T) {
 	}
 
 	// Presets绑定Machine：优先级高于请求指定
-	p, err := st.Create("operator@example.com", "corral", "corral", "tokyo", 0)
+	p, err := st.Create("operator@example.com", "example-tui", "example-tui", "tokyo", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2185,7 +2185,7 @@ func TestCreateTabRoutesToMachine(t *testing.T) {
 		Command string `json:"command"`
 	}
 	_ = json.Unmarshal(w4.Body.Bytes(), &tab4)
-	if tab4.Machine != "tokyo" || tab4.Command != "corral" {
+	if tab4.Machine != "tokyo" || tab4.Command != "example-tui" {
 		t.Fatalf("Presets绑定的Machine应优先，得到 machine=%q command=%q", tab4.Machine, tab4.Command)
 	}
 

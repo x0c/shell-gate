@@ -194,7 +194,7 @@ func TestUpstreamWakerWakesWhenAway(t *testing.T) {
 }
 
 func TestUpstreamWakerFailOpenOnPresenceError(t *testing.T) {
-	home := &stubHomePresence{err: errors.New("harbor down")}
+	home := &stubHomePresence{err: errors.New("presence down")}
 	waker := newUpstreamWaker("/wake", "127.0.0.1:7681")
 	waker.homeCheck = home
 	waker.probe = func(context.Context, string) error { return errors.New("offline") }

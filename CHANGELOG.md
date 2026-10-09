@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.3
+
+### English
+
+- Generalize deployment documentation: site-specific topology names, home-automation entity names, production paths and account details are replaced with generic gateway/relay/presence roles and example paths. No behavior change.
+
+### 简体中文
+
+- 泛化部署文档：站点拓扑实名、家庭自动化实体名、生产路径和账号细节全部换成通用网关/中继/presence 角色与示例路径。无行为变更。
+
 ## v0.1.2
 
 ### English

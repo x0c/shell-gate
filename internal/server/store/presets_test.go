@@ -18,7 +18,7 @@ func TestPresetMachineMigrationAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("打开新库失败: %v", err)
 	}
-	p, err := s.Create("operator@example.com", "corral", "corral", "linux", 0)
+	p, err := s.Create("operator@example.com", "example-tui", "example-tui", "linux", 0)
 	if err != nil {
 		t.Fatalf("新建绑定机器的预置失败: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestPresetMachineMigrationAndRoundTrip(t *testing.T) {
 		t.Fatalf("机器绑定应原样读回，得到 %q", got.Machine)
 	}
 	// 更新成跟随选择（空串）
-	if _, err := s.Update("operator@example.com", p.ID, "corral", "corral", "", 0); err != nil {
+	if _, err := s.Update("operator@example.com", p.ID, "example-tui", "example-tui", "", 0); err != nil {
 		t.Fatalf("更新预置失败: %v", err)
 	}
 	got, _ = s.Get("operator@example.com", p.ID)
@@ -52,7 +52,7 @@ func TestPresetMachineMigrationAndRoundTrip(t *testing.T) {
 		t.Fatalf("建旧结构表失败: %v", err)
 	}
 	if _, err := raw.Exec(`INSERT INTO presets (id, email, name, command, sort_order, created_at, updated_at)
-		VALUES ('p1', 'operator@example.com', 'corral', 'corral', 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {
+		VALUES ('p1', 'operator@example.com', 'example-tui', 'example-tui', 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`); err != nil {
 		t.Fatalf("塞旧数据失败: %v", err)
 	}
 	_ = raw.Close()
@@ -88,7 +88,7 @@ func TestDeleteDefaultPresetDoesNotReseed(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	s.Defaults = []DefaultPreset{{Name: "corral", Command: "corral"}, {Name: "subswap", Command: "subswap"}}
+	s.Defaults = []DefaultPreset{{Name: "example-tui", Command: "example-tui"}, {Name: "example-task", Command: "example-task"}}
 	email := "operator@example.com"
 	first, err := s.List(email)
 	if err != nil {
@@ -98,18 +98,18 @@ func TestDeleteDefaultPresetDoesNotReseed(t *testing.T) {
 		t.Fatalf("新账号应种下 2 个默认预置，得到 %d", len(first))
 	}
 
-	var subswapID string
+	var exampleTaskID string
 	for _, p := range first {
-		if p.Command == "subswap" {
-			subswapID = p.ID
+		if p.Command == "example-task" {
+			exampleTaskID = p.ID
 		}
 	}
-	if subswapID == "" {
-		t.Fatalf("未找到 subswap 默认预置: %+v", first)
+	if exampleTaskID == "" {
+		t.Fatalf("未找到 example-task 默认预置: %+v", first)
 	}
-	ok, err := s.Delete(email, subswapID)
+	ok, err := s.Delete(email, exampleTaskID)
 	if err != nil || !ok {
-		t.Fatalf("删除 subswap 失败: ok=%v err=%v", ok, err)
+		t.Fatalf("删除 example-task 失败: ok=%v err=%v", ok, err)
 	}
 
 	second, err := s.List(email)
@@ -117,11 +117,11 @@ func TestDeleteDefaultPresetDoesNotReseed(t *testing.T) {
 		t.Fatalf("删除后再次列表失败: %v", err)
 	}
 	for _, p := range second {
-		if p.Command == "subswap" {
-			t.Fatalf("删除后不应再出现 subswap，得到 %+v", second)
+		if p.Command == "example-task" {
+			t.Fatalf("删除后不应再出现 example-task，得到 %+v", second)
 		}
 	}
-	if len(second) != 1 || second[0].Command != "corral" {
-		t.Fatalf("删除后应只剩 corral，得到 %+v", second)
+	if len(second) != 1 || second[0].Command != "example-tui" {
+		t.Fatalf("删除后应只剩 example-tui，得到 %+v", second)
 	}
 }

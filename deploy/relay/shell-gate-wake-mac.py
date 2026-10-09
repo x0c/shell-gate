@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""从终端节点家庭网唤醒 Mac；仅供 SSH forced-command 调用。"""
+"""经家庭网唤醒 Mac（示例：中继主机侧）；仅供 SSH forced-command 调用。"""
 
 import os
 from pathlib import Path

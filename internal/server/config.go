@@ -91,7 +91,7 @@ type Config struct {
 	LegacySQLitePath string
 	// NetmonInterval 是主动探测上游终端主机的间隔；设为 0 表示只做被动统计，不发探测包。
 	NetmonInterval time.Duration
-	// WakeHomePresence 可选：Harbor presence 闸门，见 docs/design/2026-09-09-wake-suppress-when-home.md。
+	// WakeHomePresence 可选：在家抑制闸门（presence 服务），见 docs/design/2026-09-09-wake-suppress-when-home.md。
 	WakeHomePresence WakeHomePresence
 }
 

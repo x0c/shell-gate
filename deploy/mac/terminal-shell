@@ -2,7 +2,7 @@
 # ttyd 每个连接都会启动本脚本。Mac 是否防睡眠由门禁按 Tab 单独管理的租约决定，
 # 不能绑定到这条 WebSocket：浏览器后台、断线或刷新会重建连接，却不能丢掉原 Tab 的租约。
 # 无参数则开账号默认登录壳（对齐门禁 interactiveLoginCommand）；有参时外层仍用
-# bash -lc（与苏州 shellgate-tab-shell 一致），具体命令由门禁包装。
+# bash -lc（与 Linux 侧上游登录脚本一致），具体命令由门禁包装。
 #
 # LaunchAgent / ttyd 常不带齐登录环境：必须在此补上账号默认壳与真彩声明，否则
 # 门禁的 `exec "$SHELL" -lic` 会因 SHELL 空/错而掉进 bash，TUI 也会因缺
@@ -24,8 +24,8 @@ resolve_login_shell() {
 }
 
 export SHELL="$(resolve_login_shell)"
-# 与苏州 /etc/profile.d/truecolor.sh 同口径：网页 ttyd 只报 xterm-256color，
-# 不声明真彩时 Corral 等 TUI 会把主题量化成 256 色。
+# 与 Linux 上游的 truecolor 声明同口径（示例：/etc/profile.d/truecolor.sh）：网页 ttyd 只报 xterm-256color，
+# 不声明真彩时全屏 TUI 会把主题量化成 256 色。
 export COLORTERM="${COLORTERM:-truecolor}"
 
 if [ "$#" -eq 0 ]; then

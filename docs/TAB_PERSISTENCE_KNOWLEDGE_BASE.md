@@ -23,7 +23,7 @@ Current standalone requirements are authoritative in [architecture](ARCHITECTURE
 
 shell-gate 的工作台 Tab 不是浏览器窗口的临时状态，而是一份**按账号记忆在服务端的 Tab 目录**：同一个白名单邮箱无论刷新页面、换浏览器还是换设备登录，看到的都是同一组未关闭的 Tab；只有在工作台内明确关闭某个 Tab，服务端才删除它的目录记录。
 
-本域覆盖：创建时的落机解析（预置绑定 > 请求指定 > 默认机器）、绑定他机预置点开时顺带切换机器选择、切换机器即切换该机 Tab 集合（他机后台保活）、激活恢复顺序（该机上次激活 > 该机最近 Tab > 空态）、刷新/换端按账号全量恢复、关闭删除语义、备用门禁共享库与本地库的分工、`presets.machine` 列迁移与 `preset_defaults_applied` 记账中与 Tab 创建相关的部分。
+本域覆盖：创建时的落机解析（预置绑定 > 请求指定 > 默认机器）、绑定他机预置点开时顺带切换机器选择、切换机器即切换该机 Tab 集合（他机后台保活）、激活恢复顺序（该机上次激活 > 该机最近 Tab > 空态）、刷新/换端按账号全量恢复、关闭删除语义、共享库与本地库的分工、`presets.machine` 列迁移与 `preset_defaults_applied` 记账中与 Tab 创建相关的部分。
 
 本域不覆盖：预置的增删改管理面板细节、反代 Transport 实现细节、工作台视觉渲染细节、Mac 睡眠租约实现细节、双边缘时延选路细节——这些分属相邻域（见 §8）。
 
@@ -121,7 +121,7 @@ ID 由 `newSessionID()` 生成（密码学随机 + sha256 截断 16 字节 hex�
 
 ### 服务端内存态说明
 
-`tabStore`（`newTabStore` 首次出现后简称 Tab 存储）本身不持内存映射：`Create/Get/ListFor/Delete` 每次都直读共享库，双门禁进程看到的是同一套目录。这是"备用门禁/门禁节点双活共用 Postgres"成立的前提——任一门禁的创建与关闭对端立即可见。若未来有人给 `tabStore` 加进程内缓存，必须同步解决跨门禁失效，否则双活下两端目录分叉。
+`tabStore`（`newTabStore` 首次出现后简称 Tab 存储）本身不持内存映射：`Create/Get/ListFor/Delete` 每次都直读共享库，双网关进程看到的是同一套目录。这是"双活网关共用 Postgres"成立的前提——任一网关的创建与关闭对端立即可见。若未来有人给 `tabStore` 加进程内缓存，必须同步解决跨网关失效，否则双活下两端目录分叉。
 
 ## §2.5 物理路径表
 
@@ -178,7 +178,7 @@ Tab 目录随库重启而保留，不需要任何重建逻辑；工作台侧无�
 
 ## §4 存储语义
 
-生产真相源是备用门禁 `shared-postgres` 上的 `shell_gate` 库（`SHELL_DATABASE_URL` 指向它；门禁节点/备用门禁双门禁共用同一套 Tab 目录）。`deploy/database/init-shell-gate-db.sql` 只建库与授权（`CREATE DATABASE shell_gate`、`shell_gate_app` 角色、`CONNECT/USAGE/CREATE` 与默认权限授权），**表结构由应用启动时的 `migrate()` 兜底创建**（`Store.migrate/migrateTabs`），两处不要混淆：改表结构改 Go 迁移代码，不改建库 SQL。
+生产真相源是共享 Postgres 上的 `shell_gate` 库（示例；`SHELL_DATABASE_URL` 指向它，各网关实例共用同一套 Tab 目录）。`deploy/database/init-shell-gate-db.sql` 只建库与授权（`CREATE DATABASE shell_gate`、`shell_gate_app` 角色、`CONNECT/USAGE/CREATE` 与默认权限授权），**表结构由应用启动时的 `migrate()` 兜底创建**（`Store.migrate/migrateTabs`），两处不要混淆：改表结构改 Go 迁移代码，不改建库 SQL。
 
 本地 SQLite（`SHELL_DATABASE_URL` 给文件路径时 `store.Open()` 按路径走 `openSQLite`）仅用于单测与一次性导入（`ImportFromSQLite` 要求目标库为空才搬 `presets/tabs/preset_defaults_applied`），生产不以 `shell-gate.db` 为真相源。
 
@@ -213,13 +213,13 @@ DDL 出处：`internal/server/store/presets.go` 的 `migrate()`；旧库无 `mac
 | `email` | TEXT，主键 | 已种过默认预置的账号 | `EnsureDefaults` 用 `INSERT ... ON CONFLICT DO NOTHING` 保证每邮箱只种一次；老库已有预置但无记账的行由 `markExistingDefaults` 回填，避免升级后补种打扰删过默认项的用户 |
 | `applied_at` | TEXT，非空 | 记账时间 | 只做审计，无业务分支依赖 |
 
-与 Tab 创建的关联只有一条：用户删掉默认预置（如 corral）属于"已种过"，之后打开 Tab 列表不得再按命令名补种——否则管理面板点"删"像没反应。Tab 创建消费的是预置当前行，不感知记账表。
+与 Tab 创建的关联只有一条：用户删掉默认预置（如示例 TUI）属于"已种过"，之后打开 Tab 列表不得再按命令名补种——否则管理面板点"删"像没反应。Tab 创建消费的是预置当前行，不感知记账表。
 
 ## §5 接回语义
 
-接回（reattach，重注同一启动命令）是通用能力，不绑定任何预置：Tab 目录记住的是"哪台机器 + 哪条启动命令"，恢复时终端反代入口（`handleTermProxy`）按 Tab 归属找到它的机器上游，把存的 `tab.Command` 经请求上下文（`proxyCmdKey`）交给反代层，由 `interactiveLoginCommand()` 包成登录交互壳后作为 ttyd 的 `arg` 参数重新注入。程序若自带会话接回（如 Corral）则自然回到原会话；普通空 shell 或一次性命令落回的交互壳只保证"同一台机器、同一启动方式的新壳"，滚动历史与未退出的前台进程不保证还在。不做每 Tab 一条进程级中继或 tmux，那是另一项产品。
+接回（reattach，重注同一启动命令）是通用能力，不绑定任何预置：Tab 目录记住的是"哪台机器 + 哪条启动命令"，恢复时终端反代入口（`handleTermProxy`）按 Tab 归属找到它的机器上游，把存的 `tab.Command` 经请求上下文（`proxyCmdKey`）交给反代层，由 `interactiveLoginCommand()` 包成登录交互壳后作为 ttyd 的 `arg` 参数重新注入。程序若自带会话接回（如全屏 TUI）则自然回到原会话；普通空 shell 或一次性命令落回的交互壳只保证"同一台机器、同一启动方式的新壳"，滚动历史与未退出的前台进程不保证还在。不做每 Tab 一条进程级中继或 tmux，那是另一项产品。
 
-三条派生约束：接回不得为 Corral 或任何预置写特判；`arg` 里不得出现真实换行等控制字符（用 `$'…\n…'` 的 ANSI-C 引用由远端 shell 自己展开）；改命令包装后必须真连一次上游验 101 握手，不能只跑单测（这两条的根因见反代域，本域只声明约束归属）。
+三条派生约束：接回不得为任何示例程序或预置写特判；`arg` 里不得出现真实换行等控制字符（用 `$'…\n…'` 的 ANSI-C 引用由远端 shell 自己展开）；改命令包装后必须真连一次上游验 101 握手，不能只跑单测（这两条的根因见反代域，本域只声明约束归属）。
 
 多设备同时打开同一 Tab：各自连上游、各起一条进程，不做抢唯一 PTY（第一期明确不做）。
 
@@ -257,7 +257,7 @@ go test -race ./internal/server/ -run 'TestTab|TestTabs|TestListTabs|TestCreateT
 go test -race ./internal/server/store/ -run 'TestTabs' -v
 ```
 
-验证二：用 SQLite 实际确认 `tabs` 字段语义（单测库即可，不碰生产备用门禁库）。
+验证二：用 SQLite 实际确认 `tabs` 字段语义（单测库即可，不碰生产共享库）。
 
 ```bash
 go test -race ./internal/server/store/ -run 'TestTabsPersistAcrossReopen' -v
@@ -267,7 +267,7 @@ sqlite3 "$(mktemp -d)/tabs.db" ".tables"
 # 期望：email 全小写、machine 非空、command 存原文（空 shell 为 ''）、created_at 为 RFC3339Nano 文本
 ```
 
-生产备用门禁库只读确认示例（运维在有权限的机器上执行，禁止写入）：
+生产共享库只读确认示例（运维在有权限的机器上执行，禁止写入）：
 
 ```sql
 SELECT email, machine, count(*) FROM tabs GROUP BY email, machine ORDER BY email, machine;
@@ -282,13 +282,13 @@ SELECT email, applied_at FROM preset_defaults_applied ORDER BY email;
 - "TTYD 反代 Transport 怎么统计字节、握手采样怎么做"→ 终端反代与多上游域。
 - "顶栏 pill 样式、窄屏菜单层叠、键盘避让"→ 浏览器工作台前端域。
 - "Mac 租约脚本怎么写、8 小时自毁怎么实现"→ Mac 上游域。
-- "备用门禁/门禁节点怎么选路、Cookie 怎么共享"→ 双边缘部署与共享存储域（backlog）。
+- "双网关实例怎么选路、Cookie 怎么共享"→ 双边缘部署与共享存储域（backlog）。
 
 | 相邻域 | 本域的交接面 | 去哪里看 |
 |---|---|---|
 | 终端反代与多上游 | 落机之后按 `tab.Machine` 选上游、`arg` 包装与 101 握手、无控制字符约束 | 反代/多上游知识库，`internal/server/proxy.go` 的 `interactiveLoginCommand` |
 | 预置程序管理（backlog） | Tab 创建消费 `presets.command/machine`；`EnsureDefaults` 种一次、`machine` 列迁移 | 预置域 backlog，`internal/server/store/presets.go` |
-| 双边缘部署与共享存储（backlog） | 备用门禁 `shared-postgres` 的 `shell_gate` 库双门禁共用、建库 SQL 与导入语义 | 双边缘域 backlog，`deploy/database/init-shell-gate-db.sql`、`Store.ImportFromSQLite` |
+| 双边缘部署与共享存储（backlog） | 共享 Postgres 的 `shell_gate` 库双网关共用、建库 SQL 与导入语义 | 双边缘域 backlog，`deploy/database/init-shell-gate-db.sql`、`Store.ImportFromSQLite` |
 | 浏览器工作台前端 | 顶栏只渲染当前机器 Tab 条、机器 pill、窄屏收纳、空态文案 | 工作台前端知识库，`internal/server/web/workspace.html` |
 | Mac 上游与睡眠租约 | 创建/关闭 Tab 时的租约取得与释放、8 小时自毁、刷新不释放 | Mac 上游知识库，`deploy/mac/`、`TestMacTabLeaseSurvivesDisconnectUntilExplicitClose` |
 

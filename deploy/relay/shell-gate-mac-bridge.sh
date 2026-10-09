@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gateway callers may request only two actions：空命令唤醒 Mac，或以严格格式创建/释放一个 Tab 租约。
-# 绝不解释 SSH_ORIGINAL_COMMAND，避免这把桥接钥匙退化成通用的终端节点 shell。
+# 绝不解释 SSH_ORIGINAL_COMMAND，避免这把桥接钥匙退化成通用的中继主机 shell。
 set -euo pipefail
 
 readonly wake_script="${HOME}/.local/bin/shell-gate-wake-mac"
@@ -15,7 +15,7 @@ if [[ "$kind" != "lease" || -n "${extra:-}" || ! "$action" =~ ^(acquire|release)
   exit 64
 fi
 
-# 租约经 ZeroTier（Host mac）下发：在家离家都通；唤醒仍走家庭网，见 MAC_UPSTREAM_GUIDE。
+# 租约经点对点隧道下发（示例经 ZeroTier 到 Mac）：离家在家都通；唤醒仍走家庭网，见 MAC_UPSTREAM_GUIDE。
 exec /usr/bin/ssh \
   -F "${HOME}/.ssh/config" \
   -o BatchMode=yes \

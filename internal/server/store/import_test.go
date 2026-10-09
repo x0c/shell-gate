@@ -18,7 +18,7 @@ func TestImportFromSQLiteIntoEmptyStore(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := src.Create("operator@example.com", "corral", "corral", "", 0); err != nil {
+	if _, err := src.Create("operator@example.com", "example-tui", "example-tui", "", 0); err != nil {
 		t.Fatal(err)
 	}
 	_ = src.Close()

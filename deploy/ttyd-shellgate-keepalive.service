@@ -1,13 +1,13 @@
-# 终端节点终端主机（ttyd）用户级保活单元——root 那份 ttyd-shellgate.service 的兜底。
+# 上游终端主机（ttyd）用户级保活单元——root 那份 ttyd-shellgate.service 的兜底。
 #
 # 为什么需要它：root 单元是 Restart=on-failure，进程被干净地 SIGTERM 掉（退出码 0）
-# 时 systemd 不会拉起，2026-08-04 因此静默停机 5 小时。开发账号无 root、改不动那份
-# 单元，只能用用户级 systemd（已开 lingering，开机自启、注销不停）另起一套监管。
+# 时 systemd 不会拉起，曾因此静默停机数小时。运维账号无上游 root 权限、改不动那份
+# 单元时，用用户级 systemd（已开 lingering，开机自启、注销不停）另起一套监管。
 #
 # 与 root 单元共存：包装脚本启动前会让出已被占用的端口（见 ttyd-keepalive.sh），
 # root 的在跑就待命，不抢、不互相打架。
 #
-# 安装（开发账号自己就能做，不需要 root）：
+# 安装（运维账号自己就能做，不需要 root）：
 #   install -m 755 deploy/ttyd-keepalive.sh ~/.local/bin/ttyd-keepalive.sh
 #   install -Dm 644 deploy/ttyd-shellgate-keepalive.service \
 #       ~/.config/systemd/user/ttyd-shellgate-keepalive.service

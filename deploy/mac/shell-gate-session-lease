@@ -1,5 +1,5 @@
 #!/bin/bash
-# 仅由苏州受限桥接调用。每个 ShellGate Tab 一个受限的 Mac 系统睡眠租约；不依赖 ttyd
+# 仅由受限桥接调用。每个 ShellGate Tab 一个受限的 Mac 系统睡眠租约；不依赖 ttyd
 # WebSocket，因而浏览器后台、断线和刷新都不会提前释放。异常浏览器退出由 8 小时上限兜底。
 set -euo pipefail
 

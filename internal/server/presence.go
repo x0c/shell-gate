@@ -16,7 +16,8 @@ type homePresence interface {
 	ComfortHome(ctx context.Context) (bool, error)
 }
 
-// harborPresenceClient 读 Harbor GET /v1/presence 的 comfort_home。
+// harborPresenceClient 读 presence 服务 GET /v1/presence 的 comfort_home 字段。
+// 对接示例见 docs/design/2026-09-09-wake-suppress-when-home.md；服务选型由部署方自定。
 type harborPresenceClient struct {
 	url    string
 	token  string

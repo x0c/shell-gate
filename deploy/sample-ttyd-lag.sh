@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 卡顿当下在 linux 只读采样：ttyd↔门禁节点积压、会话写出速率、RTT。
+# 卡顿当下在上游主机只读采样：ttyd↔网关积压、会话写出速率、RTT。
 # 用法：bash deploy/sample-ttyd-lag.sh
 set -euo pipefail
 
@@ -7,7 +7,7 @@ SEOL_ZT="${SHELL_GATE_PEER:?Set SHELL_GATE_PEER to the gateway hostname}"
 TTYD_ADDR="${TTYD_ADDR:-127.0.0.1:7681}"
 INTERVAL_SEC="${INTERVAL_SEC:-2}"
 
-# 收集 ttyd 进程树（含 bash → Corral/agent 等后代），只读。
+# 收集 ttyd 进程树（含 shell → TUI/agent 等后代），只读。
 collect_tree_pids() {
   local root="$1"
   local -a queue=("${root}")

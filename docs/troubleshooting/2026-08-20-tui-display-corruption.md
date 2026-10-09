@@ -27,7 +27,7 @@ xterm.js WebGL 把字形画进纹理图集再复用。TUI 高频整屏重绘会�
 
 ## 为什么 v0.5.0 上线了还会频繁出现
 
-已发布、门禁节点二进制也对，**不是没发**。v0.5.0 的自动修复只挂了：
+已发布、网关二进制也对，**不是没发**。v0.5.0 的自动修复只挂了：
 
 - 页签回到前台（`visibilitychange`）
 - 屏幕缩放 / 跨屏（`devicePixelRatio`）
@@ -69,10 +69,10 @@ xterm.js WebGL 把字形画进纹理图集再复用。TUI 高频整屏重绘会�
 | 再加触发点 / 周期性 `clearTextureAtlas` | 会。只是把窗口从「一直挂着」收成「闪一下」 | 空闲也会卡 | **否决**。用户要的是不发生，不是修得更勤 |
 | 注入 `@xterm/addon-webgl` 0.20+（带 #6038） | 理论上能 | 0.20 对 xterm **6.x**，ttyd 捆的是 **5.4.0**，API 对不上 | **否决** |
 | 反代整页换成我们自己的 xterm 6 前端 | 能，还能保住 WebGL 速度 | 重写 ttyd 的 WS/鉴权/token 客户端 | 工作量过大，不作为这次的修法 |
-| 升级终端节点 ttyd | **不能**。ttyd **master** 仍是 `@xterm/xterm@5.5.0` + `addon-webgl@0.18.0`，没有 6.1 那批补丁 | 要 root、且升了也还是这条 bug | **否决**（别指望升 ttyd 消乱码） |
+| 升级上游 ttyd | **不能**。ttyd **master** 仍是 `@xterm/xterm@5.5.0` + `addon-webgl@0.18.0`，没有 6.1 那批补丁 | 要 root、且升了也还是这条 bug | **否决**（别指望升 ttyd 消乱码） |
 | 默认 `rendererType=canvas` | **不会**（canvas 不走 GPU 图集） | 绘制段 P50 70ms / P95 102ms，相对 WebGL 的 26 / 44ms，大约 +44ms | **采用** |
 
-ttyd 1.7.7 已经带 `@xterm/addon-canvas`，`setRendererType('canvas')` 是一等公民；门禁 iframe 的 URL 查询参数优先于上游 `-t`，改 `workspace.html` 的 `iframe.src` 即可，不必动终端节点 root 单元。
+ttyd 1.7.7 已经带 `@xterm/addon-canvas`，`setRendererType('canvas')` 是一等公民；门禁 iframe 的 URL 查询参数优先于上游 `-t`，改 `workspace.html` 的 `iframe.src` 即可，不必动上游 root 单元。
 
 ### 接受的代价（不是 bug，别去「优化」回来）
 
