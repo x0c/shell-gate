@@ -2,6 +2,8 @@
 """Build checksummed release packages locally from committed source."""
 import argparse
 import hashlib
+import gzip
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import re
@@ -22,6 +24,8 @@ subprocess.run(["python3", "scripts/check-public.py"], cwd=root, check=True)
 commit = subprocess.check_output(["git", "rev-parse", args.source_commit], cwd=root).decode().strip()
 if subprocess.check_output(["git", "rev-parse", commit + "^{tree}"], cwd=root) != subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=root):
     parser.error("source commit must have the same tree as HEAD")
+epoch = int(subprocess.check_output(["git", "show", "-s", "--format=%ct", commit], cwd=root))
+archive_time = datetime.fromtimestamp(epoch, timezone.utc).timetuple()[:6]
 out = root / "dist" / args.version
 out.mkdir(parents=True, exist_ok=True)
 checksums = []
@@ -36,10 +40,24 @@ for platform in ("linux", "darwin", "windows"):
         assets = [(binary, name), (root / "LICENSE", "LICENSE"), (root / "THIRD_PARTY_NOTICES.md", "THIRD_PARTY_NOTICES.md")]
         if platform == "windows":
             with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as target:
-                for source, target_name in assets: target.write(source, target_name)
+                for source, target_name in assets:
+                    info = zipfile.ZipInfo(target_name, date_time=archive_time)
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.create_system = 3
+                    info.external_attr = (0o755 if target_name == name else 0o644) << 16
+                    target.writestr(info, source.read_bytes())
         else:
-            with tarfile.open(archive, "w:gz") as target:
-                for source, target_name in assets: target.add(source, arcname=target_name)
+            def private_header(info):
+                info.uid = info.gid = 0
+                info.uname = info.gname = ""
+                info.mtime = epoch
+                info.pax_headers = {}
+                info.mode = 0o755 if info.name == name else 0o644
+                return info
+            with archive.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=epoch) as compressed:
+                with tarfile.open(fileobj=compressed, mode="w") as target:
+                    for source, target_name in assets:
+                        target.add(source, arcname=target_name, filter=private_header)
         checksums.append(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}")
         binary.unlink()
         print(archive.name, flush=True)

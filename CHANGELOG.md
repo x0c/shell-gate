@@ -1,8 +1,10 @@
 # Changelog
 
-## v0.1.1
+## v0.1.2
 
 ### English
+
+- Normalize release archive metadata to exclude the build account and make package timestamps reproducible.
 
 - Keep valid zero-duration TCP samples and enforce portable source checkouts and executable-hook validation.
 
@@ -14,6 +16,8 @@
 - Preserve per-machine tab selection, persistent tabs, interactive login shells, canvas rendering and mobile keyboard behavior.
 
 ### 简体中文
+
+- 清理发行包中的构建账号信息，并固定打包时间，便于复现与核验。
 
 - 保留有效的零耗时 TCP 样本，并统一跨平台源码换行与可执行脚本校验。
 
