@@ -526,11 +526,7 @@ func validateSessionLeaseCommands(machines []MachineConfig) error {
 		if err != nil {
 			return fmt.Errorf("%s 里机器 %q 的租约入口不可用: %w", envSessionLeaseCommands, machine.Name, err)
 		}
-		executable := info.Mode()&0o111 != 0
-		if runtime.GOOS == "windows" {
-			executable = strings.EqualFold(filepath.Ext(machine.WakeCommand), ".exe")
-		}
-		if info.IsDir() || !executable {
+		if !isExecutableHook(machine.SessionLeaseCommand, info) {
 			return fmt.Errorf("%s 里机器 %q 的租约入口不可执行", envSessionLeaseCommands, machine.Name)
 		}
 	}
@@ -596,11 +592,7 @@ func validateWakeCommands(machines []MachineConfig) error {
 		if err != nil {
 			return fmt.Errorf("%s 里机器 %q 的唤醒命令不可用: %w", envWakeCommands, machine.Name, err)
 		}
-		executable := info.Mode()&0o111 != 0
-		if runtime.GOOS == "windows" {
-			executable = strings.EqualFold(filepath.Ext(machine.WakeCommand), ".exe")
-		}
-		if info.IsDir() || !executable {
+		if !isExecutableHook(machine.WakeCommand, info) {
 			return fmt.Errorf("%s 里机器 %q 的唤醒命令不可执行", envWakeCommands, machine.Name)
 		}
 	}
@@ -785,4 +777,15 @@ func configDataDir() string {
 		return defaultDataDir
 	}
 	return filepath.Join(home, ".config", "shell-gate")
+}
+
+// Unix permission bits and Windows native executable paths are different contracts.
+func isExecutableHook(path string, info os.FileInfo) bool {
+	if info.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(filepath.Ext(path), ".exe")
+	}
+	return info.Mode()&0o111 != 0
 }

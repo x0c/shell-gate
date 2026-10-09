@@ -51,3 +51,24 @@ func TestLocalPasskeyRequestBoundaries(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeExecutableHookPaths(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hook")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		var err error
+		path, err = os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := validateWakeCommands([]MachineConfig{{Name: "machine", WakeCommand: path}}); err != nil {
+		t.Fatal(err)
+	}
+	// A lease path is independent of the optional wake path.
+	if err := validateSessionLeaseCommands([]MachineConfig{{Name: "machine", SessionLeaseCommand: path}}); err != nil {
+		t.Fatal(err)
+	}
+}

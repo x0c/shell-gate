@@ -4,4 +4,3 @@
 
 | 任务 | 状态 | 影响范围 | 开始 | 最近更新 | 备注 |
 |---|---|---|---|---|---|
-| Complete release deployment verification | 验证中 | Container runtime base, packages, published installer | 10-09 12:50 | 2026-10-09 12:50 | Retain pinned static ttyd; use maintained Debian runtime |

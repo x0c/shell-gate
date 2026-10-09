@@ -59,3 +59,7 @@ Public-tree privacy and gitleaks scans found no private home paths, private netw
 The terminal runtime must not inherit an OS base beyond standard security maintenance. The upstream ttyd 1.7.7 image uses Ubuntu 20.04, whose [standard support ended in May 2025](https://ubuntu.com/20-04). Inspection of its Dockerfile and `ldd` confirmed the shipped ttyd executable is static. Copy that pinned upstream executable into the maintained Debian runtime; do not copy Ubuntu packages or change the terminal/frontend version. Recheck the real terminal path after this runtime change.
 
 Cross-platform source checkouts retain LF line endings through [Git attributes](https://git-scm.com/docs/gitattributes); tests use host-native absolute paths. Unix executable hooks require execute bits, while Windows hooks require an existing native .exe file (Windows has no Unix execute-bit contract). Public API errors use English, and storage failures never return raw driver messages or internal connection details to a browser.
+
+CI matrix failures do not cancel checks on the other supported operating systems; all platform results remain available for diagnosis.
+
+Release-stage Windows CI exposed two LF-sensitive source assertions and a Unix-only path fixture. LF checkout attributes and native absolute-path/executable validation now cover both wake and lease hooks. Local complete race, vet and lint checks passed after the fixes. Storage-failure tests also confirm that preset create/update return a generic service error while validation remains a distinct client error.

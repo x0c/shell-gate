@@ -365,7 +365,7 @@ func (s *Store) Get(email, id string) (*Preset, error) {
 	return &p, nil
 }
 
-var ErrInvalidPreset = errors.New("Name and command are required")
+var ErrInvalidPreset = errors.New("name and command are required")
 
 // Create 新建预置。
 func (s *Store) Create(email, name, command, machine string, sortOrder int) (*Preset, error) {
