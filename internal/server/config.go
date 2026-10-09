@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -525,7 +526,11 @@ func validateSessionLeaseCommands(machines []MachineConfig) error {
 		if err != nil {
 			return fmt.Errorf("%s 里机器 %q 的租约入口不可用: %w", envSessionLeaseCommands, machine.Name, err)
 		}
-		if info.IsDir() || info.Mode()&0o111 == 0 {
+		executable := info.Mode()&0o111 != 0
+		if runtime.GOOS == "windows" {
+			executable = strings.EqualFold(filepath.Ext(machine.WakeCommand), ".exe")
+		}
+		if info.IsDir() || !executable {
 			return fmt.Errorf("%s 里机器 %q 的租约入口不可执行", envSessionLeaseCommands, machine.Name)
 		}
 	}
@@ -591,7 +596,11 @@ func validateWakeCommands(machines []MachineConfig) error {
 		if err != nil {
 			return fmt.Errorf("%s 里机器 %q 的唤醒命令不可用: %w", envWakeCommands, machine.Name, err)
 		}
-		if info.IsDir() || info.Mode()&0o111 == 0 {
+		executable := info.Mode()&0o111 != 0
+		if runtime.GOOS == "windows" {
+			executable = strings.EqualFold(filepath.Ext(machine.WakeCommand), ".exe")
+		}
+		if info.IsDir() || !executable {
 			return fmt.Errorf("%s 里机器 %q 的唤醒命令不可执行", envWakeCommands, machine.Name)
 		}
 	}

@@ -1,6 +1,10 @@
 package server
 
-import "net/http"
+import (
+	"errors"
+	"github.com/x0c/shell-gate/internal/server/store"
+	"net/http"
+)
 
 func (s *Server) handleListPresets(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.requireIdentity(w, r)
@@ -9,7 +13,7 @@ func (s *Server) handleListPresets(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := s.store.List(id.Email)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "读取预置失败"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Could not load presets"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"presets": list})
@@ -30,16 +34,20 @@ func (s *Server) handleCreatePreset(w http.ResponseWriter, r *http.Request) {
 	}
 	var body presetBody
 	if err := readJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "请求体无效"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Invalid request"})
 		return
 	}
 	if body.Machine != "" && !s.cfg.machineExists(body.Machine) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "机器不存在：" + body.Machine})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Machine not found: " + body.Machine})
 		return
 	}
 	p, err := s.store.Create(id.Email, body.Name, body.Command, body.Machine, body.SortOrder)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": err.Error()})
+		if errors.Is(err, store.ErrInvalidPreset) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Name and command are required"})
+		} else {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"message": "Could not save preset. Please try again."})
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -53,20 +61,24 @@ func (s *Server) handleUpdatePreset(w http.ResponseWriter, r *http.Request) {
 	presetID := r.PathValue("id")
 	var body presetBody
 	if err := readJSON(r, &body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "请求体无效"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Invalid request"})
 		return
 	}
 	if body.Machine != "" && !s.cfg.machineExists(body.Machine) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "机器不存在：" + body.Machine})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Machine not found: " + body.Machine})
 		return
 	}
 	p, err := s.store.Update(id.Email, presetID, body.Name, body.Command, body.Machine, body.SortOrder)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": err.Error()})
+		if errors.Is(err, store.ErrInvalidPreset) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Name and command are required"})
+		} else {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"message": "Could not save preset. Please try again."})
+		}
 		return
 	}
 	if p == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"message": "预置不存在"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Preset not found"})
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -79,11 +91,11 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 	}
 	okDel, err := s.store.Delete(id.Email, r.PathValue("id"))
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "删除失败"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Could not delete preset"})
 		return
 	}
 	if !okDel {
-		writeJSON(w, http.StatusNotFound, map[string]string{"message": "预置不存在"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Preset not found"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

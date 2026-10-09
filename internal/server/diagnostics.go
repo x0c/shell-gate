@@ -34,19 +34,19 @@ func (s *Server) handleDebugLog(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<10)) // 单条最多 8KB，防止滥用写爆磁盘
 	_ = r.Body.Close()
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "无法读取请求体"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Could not read request"})
 		return
 	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "请求体不是合法 JSON"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Invalid JSON request"})
 		return
 	}
 	payload["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
 	payload["email"] = id.Email
 	line, err := json.Marshal(payload)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "序列化失败"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Could not encode diagnostics"})
 		return
 	}
 	name := debugLogFileName
@@ -125,7 +125,7 @@ func (s *Server) handleNetmon(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	primary := s.primaryUpstream()
 	if primary == nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "未配置上游机器"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "No terminal machine is configured"})
 		return
 	}
 	// 门禁自身指标与浏览器上报挂在默认机器的监控器上（与具体机器无关，只是存取容器）。
@@ -160,11 +160,11 @@ func (s *Server) handleNetmonSample(w http.ResponseWriter, r *http.Request) {
 	}
 	var sample netmonClientSample
 	if err := readJSON(r, &sample); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "请求体无效"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Invalid request"})
 		return
 	}
 	if strings.TrimSpace(sample.ClientID) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "缺少 clientId"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Missing clientId"})
 		return
 	}
 	if primary := s.primaryUpstream(); primary != nil {

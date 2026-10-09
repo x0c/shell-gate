@@ -365,6 +365,8 @@ func (s *Store) Get(email, id string) (*Preset, error) {
 	return &p, nil
 }
 
+var ErrInvalidPreset = errors.New("Name and command are required")
+
 // Create 新建预置。
 func (s *Store) Create(email, name, command, machine string, sortOrder int) (*Preset, error) {
 	email = normalizeEmail(email)
@@ -372,7 +374,7 @@ func (s *Store) Create(email, name, command, machine string, sortOrder int) (*Pr
 	command = strings.TrimSpace(command)
 	machine = strings.TrimSpace(machine)
 	if name == "" || command == "" {
-		return nil, fmt.Errorf("名称与命令不能为空")
+		return nil, ErrInvalidPreset
 	}
 	now := time.Now().UTC()
 	p := &Preset{
@@ -404,7 +406,7 @@ func (s *Store) Update(email, id, name, command, machine string, sortOrder int) 
 	command = strings.TrimSpace(command)
 	machine = strings.TrimSpace(machine)
 	if name == "" || command == "" {
-		return nil, fmt.Errorf("名称与命令不能为空")
+		return nil, ErrInvalidPreset
 	}
 	now := time.Now().UTC()
 	n, err := s.mutate(email, "preset.update", id,

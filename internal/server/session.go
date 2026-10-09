@@ -29,33 +29,33 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	}()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "无法读取请求体"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Could not read request"})
 		return
 	}
 	var req sessionRequest
 	if err := json.Unmarshal(body, &req); err != nil || strings.TrimSpace(req.AccessToken) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "缺少 access_token"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Missing access token"})
 		return
 	}
 	id, err := s.verifier.Verify(req.AccessToken)
 	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "令牌无效或已过期"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Token is invalid or expired"})
 		return
 	}
 	if !s.cfg.emailAllowed(id.Email) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"message": "该账号无权访问此终端"})
+		writeJSON(w, http.StatusForbidden, map[string]string{"message": "Account is not allowed"})
 		return
 	}
 	if err := s.store.EnsureDefaults(id.Email); err != nil {
 		log.Printf("种默认预置失败 email=%s: %v", id.Email, err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "无法初始化预置"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Could not prepare workspace"})
 		return
 	}
 	// GoTrue access_token 默认约 1h 过期；门禁会话要按 SessionTTL（默认 12h）独立续命，
 	// 不能把短寿命 access_token 直接写进 Cookie，否则 MaxAge 还没到就会被 JWT exp 踢下线。
 	sessionToken, err := s.mintSessionToken(id)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "无法签发会话"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Could not create session"})
 		return
 	}
 	http.SetCookie(w, s.sessionCookie(sessionToken, int(s.cfg.SessionTTL.Seconds())))
@@ -136,7 +136,7 @@ func (s *Server) sessionCookie(value string, maxAge int) *http.Cookie {
 func (s *Server) requireIdentity(w http.ResponseWriter, r *http.Request) (*authkit.Identity, bool) {
 	id, ok := s.identityFromCookie(r)
 	if !ok {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "未登录"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Sign-in required"})
 		return nil, false
 	}
 	return id, true

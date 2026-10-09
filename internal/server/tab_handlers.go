@@ -23,7 +23,7 @@ func (s *Server) handleCreateTab(w http.ResponseWriter, r *http.Request) {
 	}
 	var body createTabBody
 	if err := readJSON(r, &body); err != nil && err != io.EOF {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "请求体无效"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Invalid request"})
 		return
 	}
 	title := strings.TrimSpace(body.Title)
@@ -36,11 +36,11 @@ func (s *Server) handleCreateTab(w http.ResponseWriter, r *http.Request) {
 	if body.PresetID != "" {
 		p, err := s.store.Get(id.Email, body.PresetID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "读取预置失败"})
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Could not load presets"})
 			return
 		}
 		if p == nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"message": "预置不存在"})
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "Preset not found"})
 			return
 		}
 		command = p.Command
@@ -52,7 +52,7 @@ func (s *Server) handleCreateTab(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !s.cfg.machineExists(machine) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "机器不存在：" + machine})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"message": "Machine not found: " + machine})
 		return
 	}
 	u := s.upstreamByName[machine]
@@ -73,7 +73,7 @@ func (s *Server) handleCreateTab(w http.ResponseWriter, r *http.Request) {
 	tab, err := s.tabs.Create(id.Email, machine, title, command)
 	if err != nil {
 		log.Printf("持久化 Tab 失败 email=%s machine=%s: %v", id.Email, machine, err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "创建 Tab 失败"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Could not create tab"})
 		return
 	}
 	if u.leaser != nil {
@@ -83,7 +83,7 @@ func (s *Server) handleCreateTab(w http.ResponseWriter, r *http.Request) {
 			}
 			log.Printf("创建 Mac Tab 的睡眠租约失败 machine=%s tab=%s: %v", machine, tab.ID, err)
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-				"message": machine + " 未能保持终端会话；请稍后重试",
+				"message": machine + " could not keep the terminal awake. Please try again.",
 			})
 			return
 		}
@@ -128,7 +128,7 @@ func (s *Server) handleDeleteTab(w http.ResponseWriter, r *http.Request) {
 	tabID := r.PathValue("id")
 	tab, exists := s.tabs.Get(tabID)
 	if !exists || !strings.EqualFold(tab.Email, id.Email) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Tab 不存在"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Tab not found"})
 		return
 	}
 	deleted, err := s.tabs.Delete(id.Email, tabID)
@@ -137,7 +137,7 @@ func (s *Server) handleDeleteTab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !deleted {
-		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Tab 不存在"})
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Tab not found"})
 		return
 	}
 	if u := s.upstreamByName[tab.Machine]; u != nil && u.leaser != nil {

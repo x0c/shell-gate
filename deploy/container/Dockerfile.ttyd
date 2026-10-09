@@ -1,9 +1,11 @@
 # Upstream ttyd is GPL-3.0; it runs as a separate, unprivileged process.
-FROM tsl0922/ttyd:1.7.7
-USER root
+FROM tsl0922/ttyd:1.7.7 AS upstream
+# The upstream executable is static; its old Ubuntu OS base is not shipped.
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends bash curl ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10002 terminal && useradd --uid 10002 --gid terminal --create-home --shell /bin/bash terminal
+COPY --from=upstream /usr/bin/ttyd /usr/local/bin/ttyd
 COPY deploy/container/terminal-shell /usr/local/bin/terminal-shell
 USER 10002:10002
 WORKDIR /home/terminal

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -1713,11 +1714,12 @@ func TestAttachWakeCommands(t *testing.T) {
 	u, _ := url.Parse("http://203.0.113.4:7681")
 	machines := []MachineConfig{{Name: "mac", URL: u}}
 
-	got, err := attachWakeCommands(machines, "mac=/opt/shell-gate/wake-mac")
+	hook := filepath.Join(t.TempDir(), "wake-mac")
+	got, err := attachWakeCommands(machines, "mac="+hook)
 	if err != nil {
 		t.Fatalf("合法唤醒配置不应报错: %v", err)
 	}
-	if got[0].WakeCommand != "/opt/shell-gate/wake-mac" {
+	if got[0].WakeCommand != hook {
 		t.Fatalf("唤醒Command未绑定: %+v", got[0])
 	}
 	if machines[0].WakeCommand != "" {
@@ -1746,6 +1748,13 @@ func TestAttachWakeCommands(t *testing.T) {
 	executable := filepath.Join(dir, "wake")
 	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		var err error
+		executable, err = os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := validateWakeCommands([]MachineConfig{{Name: "mac", WakeCommand: executable}}); err != nil {
 		t.Fatalf("存在且可执行的唤醒入口应通过校验: %v", err)

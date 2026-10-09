@@ -420,7 +420,7 @@ func (s *Server) handleMachineReady(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	u, ok := s.upstreamByName[name]
 	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"message": "机器不存在：" + name})
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Machine not found: " + name})
 		return
 	}
 	woke, err := u.ensureReady(r.Context())
