@@ -87,3 +87,7 @@ Current standalone configuration and deployment requirements are defined in [sta
     - **两个教训**：① `term.getSelection()` 内容模型为空（`selLen:0`）本身就说明 xterm 没在做选区、拖选被 app 抢走了，可见高亮是 app 画的——这是判断"选区在哪一层"的决定性信号，别再假设"看得见的高亮=xterm/ttyd 画的"。② 排查渲染类问题要 headless 启动真实 app 打印解析后的样式值拿实锤，不要靠肉眼颜色猜。
     - **`workspace.html` 的 `selectionBackground` 透明化保留、但不是为这个 bug**：它对的是**原生 xterm 选区**的场景——工作台里非全屏 TUI 的普通 shell / 其它预置程序不申请鼠标捕获，用户拖选走的是 xterm 自己的 canvas 选区，此时那个 xterm 已知问题是真的，半透明 `selectionBackground` 是这些 tab 的正确默认值。它对自绘选区的 TUI 不生效（也不该由它负责）。
 
+
+## Browser zoom
+
+Browser page zoom must keep embedded terminals fitted to the available workspace and mouse selection/reporting aligned with the displayed cells. Refit after layout or device-pixel-ratio changes without reloading terminal sessions. Preserve mobile keyboard height ownership and idempotent fitting.

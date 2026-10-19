@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.4
+
+### English
+
+- Keep embedded terminals fitted after browser zoom and asynchronous renderer changes; align mouse clicks and text selection with the stretched character grid.
+- Clarify Mac wake-failure diagnostics and the storage/swap exhaustion incident.
+
+### 简体中文
+
+- 修复网页缩放及渲染尺寸异步变化后的终端填充，确保点击和文字选区与画面中的字符对齐。
+- 补充 Mac 唤醒失败的诊断方法及磁盘、交换空间耗尽事件的归因。
+
 ## v0.1.3
 
 ### English

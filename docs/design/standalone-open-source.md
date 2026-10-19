@@ -67,3 +67,5 @@ Release-stage Windows CI exposed two LF-sensitive source assertions and a Unix-o
 A zero elapsed TCP connection interval is a valid measurement at clock resolution. Keep that sample when both timestamps exist; reject only missing or reversed timestamps. Windows CI intermittently exposed the previous strict-positive interval filter through a missing sample count. Preserve the count assertion and fix collection rather than weakening the test.
 
 Release archive metadata must not reveal the build account. Tar members use empty owner/group names and numeric zero IDs; tar/gzip/zip timestamps derive from the reviewed source commit. Inspect archive headers as well as text before publishing. Earlier draft packages with filesystem owner metadata are not public releases and must not be published.
+
+The v0.1.4 public-tree leak scan retained 13 non-blocking entropy matches: twelve documentation paths/anchors (including the new wake-investigation links) and one Mac build-script path expression. Each was reviewed as a path or anchor, with no credential content. No scanner exceptions or threshold changes were added.

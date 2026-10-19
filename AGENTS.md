@@ -20,7 +20,7 @@ Self-hosted browser terminal gateway. Read documents whose described contents ar
 - [docs/design/2026-09-08-dual-edge-shared-store.md](docs/design/2026-09-08-dual-edge-shared-store.md): Optional multi-edge routing and shared PostgreSQL.
 - [docs/design/2026-09-09-wake-suppress-when-home.md](docs/design/2026-09-09-wake-suppress-when-home.md): Optional presence adapter and wake suppression.
 - [docs/MAC_UPSTREAM_GUIDE.md](docs/MAC_UPSTREAM_GUIDE.md): Mac terminal build, LaunchAgent, firewall and optional wake/lease setup.
-- [docs/troubleshooting/TROUBLESHOOTING_INDEX.md](docs/troubleshooting/TROUBLESHOOTING_INDEX.md): Verified terminal and transport troubleshooting.
+- [docs/troubleshooting/TROUBLESHOOTING_INDEX.md](docs/troubleshooting/TROUBLESHOOTING_INDEX.md): Verified terminal and transport troubleshooting, including Mac wake with home-LAN ARP checks.
 - [SECURITY.md](SECURITY.md): Threat model, dependency assessment and private reporting.
 - [CONTRIBUTING.md](CONTRIBUTING.md): Development and release checks.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): Dependency licensing and embedded SDK rebuild.

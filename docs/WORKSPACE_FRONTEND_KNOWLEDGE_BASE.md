@@ -357,7 +357,8 @@ sequenceDiagram
   （盖 ttyd 握手后套用字号/渲染器导致的网格重算）；
   `document.fonts.ready`、`term.onResize()`（50ms 防抖）、窗口 `resize`
   （100ms 防抖）、`visualViewport resize`（键盘开合且宽度未变时跳过，
-  见 `shouldSkipMobileKeyboardViewportFit()`）。
+  见 `shouldSkipMobileKeyboardViewportFit()`）；`ResizeObserver` 监听容器和屏幕层，
+  分辨率媒体查询监听 DPR 改变并重新注册。
 - 护栏：指纹（`tightFitStateKey()`）过滤＋`running` 重入保护
   （`term.resize()` 会同步派发 `onResize`）。新增触发点必须一次性或经指纹
   过滤；无条件 `term.fit()` 会让隐藏 textarea 瞬间失焦、手机键盘反复开合。
@@ -466,7 +467,7 @@ sequenceDiagram
   ① 冪等指纹不能只看容器像素盒。旧实现首屏贴合后 300ms/1000ms 重试全被跳过，
   而 ttyd 在握手后才套用字号/字体/渲染器（容器不动、网格重算），右侧留黑边
   直到手动改窗口大小。故 `tightFitStateKey()`＝容器盒＋`cols`/`rows`＋
-  `.xterm-screen` 的 `offsetWidth/offsetHeight`，并补 `document.fonts.ready`、
+  `.xterm-screen` 的 `offsetWidth/offsetHeight`、DPR 和渲染器字符尺寸，并补 `document.fonts.ready`、
   `term.onResize`、2.5s 兜底三个触发点；指纹按贴合完成后状态记录，
   量不到网格时不写、留给后续重试。
   ② 量尺寸前先清上一轮 `transform`。`getBoundingClientRect()` 返含 transform
@@ -594,3 +595,13 @@ node --test internal/server/web/enhance_query_frame_test.mjs
 ## Browser acceptance and pixel ratio
 
 Verified with ttyd 1.7.7 on a Retina Mac: Playwright's default scale factor of 1 can leave xterm canvas device dimensions based on the native factor of 2, making 13px text appear half-sized. An explicit `deviceScaleFactor: 2` aligned the rendered grid and restored the intended font size; no product renderer change was needed. Match the browser fixture to the display's pixel ratio before diagnosing font/tight-fit defects. Physical mobile keyboard behavior still requires a device test.
+
+## Browser zoom fitting and pointer coordinates
+
+The browser-zoom contract is defined in [product behavior](PRODUCT_BEHAVIOR.md#browser-zoom). Keep the existing fractional-cell stretch so full-screen terminal content reaches the container edges, and normalize pointer coordinates before xterm converts pixels to cells. A screen-only CSS transform does not update xterm's cell dimensions. Both native selection and terminal mouse reports need the same inverse transform.
+
+Inspected reference: xterm.js 5.4.0 [FitAddon](https://github.com/xtermjs/xterm.js/blob/5.4.0/addons/addon-fit/src/FitAddon.ts), [CanvasRenderer](https://github.com/xtermjs/xterm.js/blob/5.4.0/addons/addon-canvas/src/CanvasRenderer.ts), and [MouseService](https://github.com/xtermjs/xterm.js/blob/5.4.0/src/browser/services/MouseService.ts). Reuse ttyd's FitAddon and native mouse encoding; the enhancement only handles fractional-cell stretch and its inverse pointer mapping. This compatibility bridge targets ttyd's embedded xterm 5.4 API and must be revalidated when ttyd changes. [Browser page zoom changes devicePixelRatio](https://developer.mozilla.org/en-US/docs/Web/API/Window/devicePixelRatio); pinch zoom is distinct.
+
+The fit fingerprint must include device pixel ratio and renderer cell dimensions. Observe the container and xterm screen to refit after asynchronous renderer/layout changes, including changes after zoom, font loading, and revealing a hidden tab. Coalesce triggers and preserve the existing reentry and mobile keyboard guards. Do not cache a successful fit for a hidden zero-size container.
+
+Validation (2026-10-19): real Chromium 151 page zoom at 50%, 67%, 75%, 80%, 90%, 100%, 110%, 125%, 150%, 175%, and 200%, then back to 100%, passed three actual SGR clicks and a native drag selection at each step. Screen/container edges agreed within 0.001 CSS pixel; asynchronous 10px/20px/restored font changes refitted. The terminal stayed connected. Race tests, vet, lint and privacy checks passed; the existing unreachable OpenPGP advisory remains assessed in [security](../SECURITY.md#dependency-assessment). The isolated Homebrew ttyd/lws fixture logged its 32 KiB header cap at startup; this is its transport default, not a gateway diagnostic or changed behavior. The Mac locked during acceptance, so native window capture became unavailable; browser-render capture and automated interaction evidence are separate from physical mobile keyboard acceptance.

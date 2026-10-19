@@ -1655,6 +1655,17 @@ func TestEnhanceQueryFrameFilter(t *testing.T) {
 	}
 }
 
+func TestEnhanceTerminalZoom(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("Node is unavailable; skipping terminal zoom regression tests")
+	}
+	out, err := exec.Command(node, filepath.Join("web", "enhance_zoom_test.mjs")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("Terminal zoom regression failed: %v\n%s", err, out)
+	}
+}
+
 // ---------- 多上游Machine支持 ----------
 
 func TestParseMachines(t *testing.T) {

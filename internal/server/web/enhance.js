@@ -1494,9 +1494,13 @@
   function tightFitStateKey(term, guardBox) {
     var gr = guardBox.getBoundingClientRect();
     var screen = term.element && term.element.querySelector(".xterm-screen");
+    var dims = term._core && term._core._renderService && term._core._renderService.dimensions;
     return [
       Math.round(gr.width),
       Math.round(gr.height),
+      window.devicePixelRatio || 1,
+      dims && dims.css.cell.width,
+      dims && dims.css.cell.height,
       term.cols || 0,
       term.rows || 0,
       screen ? screen.offsetWidth : 0,
@@ -1504,9 +1508,39 @@
     ].join("x");
   }
 
+  // xterm 5.4 divides pointer offsets by unscaled cell dimensions. Undo our
+  // fractional-cell stretch for both native selection and terminal mouse reports.
+  function unscaledTerminalPointer(event, element) {
+    if (!element || !element.style.transform) return event;
+    var rect = element.getBoundingClientRect();
+    var width = parseFloat(element.style.width);
+    var height = parseFloat(element.style.height);
+    if (!(rect.width > 0 && rect.height > 0 && width > 0 && height > 0)) return event;
+    return {
+      clientX: rect.left + (event.clientX - rect.left) * width / rect.width,
+      clientY: rect.top + (event.clientY - rect.top) * height / rect.height,
+    };
+  }
+
+  function installScaledTerminalPointer(term) {
+    var mouse = term._core && term._core._mouseService;
+    if (!mouse || mouse.__sgScaledPointer) return;
+    ["getCoords", "getMouseReportCoords"].forEach(function (name) {
+      var original = mouse[name];
+      if (typeof original !== "function") return;
+      mouse[name] = function (event, element) {
+        var args = Array.prototype.slice.call(arguments);
+        args[0] = unscaledTerminalPointer(event, element);
+        return original.apply(this, args);
+      };
+    });
+    mouse.__sgScaledPointer = true;
+  }
+
   // 让字符网格贴满容器：先骗 FitAddon 滚动条宽=0，再按空隙补列/行，最后对半格余量做 scale。
   function tightFitTerminal(term, container) {
     if (!term || !container) return;
+    installScaledTerminalPointer(term);
 
     // 冪等化（关键修复）：每次视口事件都无条件 term.fit() 会反复重排 xterm，令隐藏
     // textarea 一瞬失焦，手机软键盘随之反复开合，进而视口Jitter、快捷键栏上下跳、第二行
@@ -1515,6 +1549,8 @@
     if (term.element && document.getElementById("shellgate-mobile-bar")) {
       guardBox = term.element;
     }
+    var guardRect = guardBox.getBoundingClientRect();
+    if (!(guardRect.width > 0 && guardRect.height > 0)) return;
     if (term.__sgFitDone && term.__sgLastFitKey === tightFitStateKey(term, guardBox) && term.cols && term.rows) {
       return;
     }
@@ -1649,15 +1685,32 @@
         // ignore
       }
     }
-      window.addEventListener("resize", function () {
+    if (typeof ResizeObserver !== "undefined") {
+      var observer = new ResizeObserver(function () { schedule(50); });
+      observer.observe(container);
+      var screen = term.element && term.element.querySelector(".xterm-screen");
+      if (screen) observer.observe(screen);
+    }
+    function watchDpr() {
+      if (!window.matchMedia) return;
+      var mq = window.matchMedia("(resolution: " + (window.devicePixelRatio || 1) + "dppx)");
+      function changed() {
+        mq.removeEventListener("change", changed);
+        watchDpr();
+        schedule(100);
+      }
+      if (mq.addEventListener) mq.addEventListener("change", changed);
+    }
+    watchDpr();
+    window.addEventListener("resize", function () {
+      schedule(100);
+    });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", function () {
+        if (shouldSkipMobileKeyboardViewportFit()) return;
         schedule(100);
       });
-      if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", function () {
-          if (shouldSkipMobileKeyboardViewportFit()) return;
-          schedule(100);
-        });
-      }
+    }
   }
 
   // ---------- 手机端：键盘避让 + 触摸滚动 + 快捷键栏 ----------

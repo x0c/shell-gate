@@ -232,6 +232,12 @@ Code review 见到第三处 `ensureReady()` 调用即应打回。（High confide
 12. **秒断看保活参数，不要先怪网络**：`ttyd.err.log` 反复 `VALIDITY TIMEOUT ... (ping=5, hangup=10)` 即网关到 Mac 的 WS
 保活没通过，Mac 侧已用 `-m 0 -P 30` 缓解（拥堵突发时 10s hangup 扛不住）。但拉长保活不能代替压缩；
 回归时先核压缩协商是否还在、是否退回 brew 二进制、是否丢了 `-P 30`。（High confidence：排查记录并行症状小节。）
+13. **AI pitfall —— 隧道不通后必须再查家庭网；唤醒脚本 exit 0 ≠ Mac 已上线**：工作台「Connecting to mac; waking…」
+走 `POST /api/machines/mac/ready`。边缘到 Mac 隧道口 `No route to host` 在睡眠时常见，只说明该进唤醒分支。
+中继唤醒入口返回成功只表示已发魔术包/LAN SSH 轻推。若家用路由器上对该 Mac 的 ARP/邻居为 `FAILED`/`INCOMPLETE`、
+ping 全丢、桥 MAC 表不见其地址，则路由器**未观察到当前家庭网应答**，不能单独断言 Wi-Fi 已断开或机器关机——DHCP 租约未过期也不能当作在线。
+路由器无法区分关机 / 离网 / 深睡断 Wi‑Fi / 系统失去响应；唤醒入口已执行仍无 LAN 应答时，停止软唤醒空转，改查电源、本机无线与系统状态。2026-10-15 后续本机证据确认磁盘耗尽、交换文件创建失败与严重内存压力；机主确认开盖无反应后手动强制重启。该次不能再作为深睡叫不醒的样本。
+（High confidence：2026-10-15 真连；见 [排查记录](troubleshooting/2026-10-15-mac-unreachable-after-wake.md)。）
 
 ## §7 可执行验证
 
@@ -286,7 +292,7 @@ ps -o pri= -p <web-tab shell pid>            # 期望 31（Interactive 生效）
 ## §9 缺口与待补
 
 - Missing user experience input：本库编写期间未做用户问答；以下为写作方已知的待确认项，需后续补采纳后更新本文：
-  - M1 + Wi-Fi 合盖深睡偶发叫不醒的当前发生率（指南称"叫不醒就停"，无最新统计）。
+  - M1 + Wi-Fi 合盖深睡偶发叫不醒的当前发生率（指南称"叫不醒就停"，无最新统计）。2026-10-15 失联事件后续查到磁盘/交换空间耗尽及开盖无反应、手动强制重启，不能计入深睡唤醒失败率；见对应排查记录。
   - 在家抑制生产验收第 4 项（presence 服务不可达 fail-open）仍只有单测覆盖，未做生产掐链路演练。
   - `shell-gate-wake-mac`（中继侧 `~/.local/bin`）的魔术包目标 MAC 与重试策略不在仓内，无版本化记录；双重保险（脚本侧再读本地 presence）未实施。
   - Mac 离家场景（家庭网不可达、ZeroTier 在线）下唤醒必然失败时的前端文案是否需区分"离家睡着叫不醒"与"在家已抑制"，未定。
