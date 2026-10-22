@@ -19,3 +19,11 @@
 已用本机真实 Go 门禁与 ttyd、Chrome 验证终端输入、浮窗内继续输入、主题切换、预置创建、开关标签、手机菜单及 390px 无横向溢出；已检查桌面/手机截图，Go race 测试通过。手机验证是浏览器尺寸模拟，不等同于实机软键盘验收；通行密钥代码保持原样，未代替用户完成生物识别。
 
 <!-- 该文档整理/压缩于 2026-09-05 -->
+
+## Generic SSO login review
+
+Reuse the existing `internal/server/web/login.html` identity column, fixed graphite palette, thin separators and 48px controls. Keep desktop side-by-side and mobile stacked geometry. The actual password submit button and local setup disclosure were inspected as the component references; SSO is the only primary action in its mode and uses the same public HTML button behavior, with stronger filled contrast. Do not add unrelated account controls, provider logos or a settings surface.
+
+Load authentication settings before showing mode-specific actions: never flash a passkey action in SSO mode. Group the sign-in heading, provider context, primary action and actionable error in one column. Show immediate redirect feedback, prevent duplicate activation, and restore the control on browser back/forward-cache return. Configuration failure replaces loading with a working retry action. Preserve keyboard focus visibility, live error announcements, 320px layout and enlarged text. SSO errors offer recovery without exposing provider diagnostics or retaining OAuth parameters in the page URL. The local password, setup and passkey paths remain available in local mode. Reference behavior: [MDN pageshow](https://developer.mozilla.org/en-US/docs/Web/API/Window/pageshow_event) and [AbortSignal.timeout](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static).
+
+Validation boundary for the SSO review: page-script regression tests exercise initial loading, SSO redirect feedback, back/forward-cache restoration, configuration failure/retry, error-parameter cleanup and the local-mode controls. The current execution environment exposes no browser surfaces; Chrome and the in-app browser both report unavailable, and window enumeration found no Chrome window. Desktop/mobile screenshots, actual keyboard focus and physical-device interaction remain unverified. Do not describe these script tests as visual acceptance. A future acceptance pass should open `/login` and its error states at desktop, 390px and 320px widths and enlarged text, then inspect captures and the real sign-in/return path.

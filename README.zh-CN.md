@@ -55,18 +55,19 @@ $env:SHELL_ALLOWED_EMAILS='you@example.com'; $env:SHELL_TTYD_URL='http://127.0.0
 ## 功能
 
 - 本地邮箱密码登录、可选通行密钥、一次性邀请和明确的邮箱白名单。
+- 可选外部登录：传统 GoTrue 适配器或通用 OIDC SSO（授权码 + PKCE，走 Discovery/JWKS）。
 - 按账号保存 Tab 和预置命令，刷新或换浏览器登录后恢复。
 - 多台 ttyd 主机、按机器切换 Tab、记住上次激活的 Tab。
 - 紧凑的桌面顶栏、触摸滚动和手机终端快捷键。
 - 运行时切换深浅色、剪贴板桥接和终端截图。
-- 可选 PostgreSQL、外部 GoTrue 认证及唤醒、保活接口。
+- 可选 PostgreSQL、外部认证（GoTrue 或通用 OIDC SSO）及唤醒、保活接口。
 - 浏览器资源随程序提供；诊断日志默认关闭。
 
 默认部署运行时不需要远程服务。首次下载需要网络，公共 HTTPS 证书签发也需要网络。隔离环境可预先导入镜像，并自行提供浏览器信任的证书。ShellGate 没有付费服务依赖；服务器、域名及自选服务可能产生费用。
 
 ## 部署和配置
 
-[部署说明](docs/DEPLOYMENT.md) 包含 HTTPS、多主机、独立服务、备份和升级；[配置示例](.env.example) 提供初始配置；[架构说明](docs/ARCHITECTURE.md) 描述适配器边界和扩展要求。源码构建需要 Go 1.26.9+，运行 `go build ./cmd/shell-gate`。
+[部署说明](docs/DEPLOYMENT.md) 包含 HTTPS、多主机、独立服务、备份和升级；[配置示例](.env.example) 提供初始配置；[架构说明](docs/ARCHITECTURE.md) 描述适配器边界和扩展要求。源码构建需要 Go 1.26.10+，运行 `go build ./cmd/shell-gate`。
 
 **信任边界**：被邀请的人拥有目标终端账号的系统权限。门禁隔离 Tab 和预置数据，不隔离共享系统账号中的文件和进程。所有获准账号都能访问配置中的每台机器。ttyd 必须保持私有；需要用户隔离时，分别部署门禁与 ttyd，使用不同的白名单、域名和系统账号、容器或主机。详见[安全说明](SECURITY.md)。
 

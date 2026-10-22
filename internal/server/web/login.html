@@ -11,7 +11,15 @@
     html, body { min-height: 100%; margin: 0; }
     body { min-height: 100svh; display: grid; place-items: center; padding: 32px; background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
     main { width: min(800px, 100%); display: grid; grid-template-columns: 1fr 280px; column-gap: 64px; align-items: center; padding: 48px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-    .identity { grid-row: 1 / 6; }
+    .identity { min-width: 0; }
+    .authentication { min-width: 0; }
+    .signin-title { margin: 0 0 12px; font-size: 22px; font-weight: 500; line-height: 1.3; letter-spacing: -.02em; }
+    .primary { border-color: var(--accent); background: var(--accent); color: var(--bg); justify-content: center; font-weight: 600; }
+    .primary:hover:not(:disabled) { background: #e4dac5; }
+    .primary:active:not(:disabled) { background: #bdb196; }
+    #provider { margin-top: 12px; overflow-wrap: anywhere; }
+    #accessNote { line-height: 1.6; }
+    .authentication.sso #accessNote { margin: 0 0 24px; }
     .brand { margin: 0; font: 400 clamp(32px, 5vw, 48px)/1.2 ui-monospace, Menlo, monospace; letter-spacing: -0.065em; }
     .sub { margin: 16px 0 0; color: var(--muted); font-size: 14px; }
     button { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; width: 100%; padding: 12px 16px; border: 1px solid var(--accent); border-radius: var(--radius); background: transparent; color: var(--fg); font: inherit; font-size: 14px; cursor: pointer; }
@@ -22,28 +30,32 @@
     button svg { width: 18px; height: 18px; }
     .meta { margin-top: 16px; color: var(--muted); font-size: 12px; }
     input { display:block; width:100%; margin:6px 0 16px; padding:12px; border:1px solid var(--line); border-radius:var(--radius); background:var(--bg); color:var(--fg); font:inherit; }
-    details { grid-column:2; margin-top:20px; font-size:13px; }
+    details { margin-top:20px; font-size:13px; }
     details summary { cursor:pointer; color:var(--muted); }
     form { margin-top:20px; }
  #passwordLogin { margin:0 0 16px; }
 
  .secondary { border-color:var(--line); font-size:13px; margin-top:12px; }
     label { display:block; }
-    #msg { grid-column: 2; margin-top: 12px; font-size: 13px; line-height: 1.6; color: var(--danger); overflow-wrap: anywhere; }
+    #msg { margin-top: 12px; font-size: 13px; line-height: 1.6; color: var(--danger); overflow-wrap: anywhere; }
     #msg:empty { margin: 0; }
-    @media (max-width: 640px) { main { grid-template-columns: 1fr; gap: 0; padding: 32px 0; width: min(360px, 100%); } .identity { grid-row: auto; margin-bottom: 48px; } #msg, details { grid-column: 1; } }
+    @media (max-width: 640px) { main { grid-template-columns: 1fr; gap: 0; padding: 32px 0; width: min(360px, 100%); } .identity { margin-bottom: 40px; } body { padding: 24px; } }
   </style>
 </head>
 <body>
   <main>
     <div class="identity"><h1 class="brand">shell-gate</h1>
     <p class="sub">Your terminal workspace</p></div>
+    <section class="authentication" aria-label="Sign in">
+    <h2 id="signinTitle" class="signin-title" hidden>Sign in</h2>
+    <p id="loading" class="meta" role="status">Loading sign-in options…</p>
+    <div id="accessNote" class="meta" hidden>Access is limited to invited accounts.</div>
     <form id="passwordLogin" hidden>
       <label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="username" required />
       <label for="loginPassword">Password</label><input id="loginPassword" type="password" autocomplete="current-password" required />
       <button type="submit">Sign in</button>
     </form>
-    <button id="btn" class="secondary" type="button" disabled>
+    <button id="btn" class="secondary" type="button" hidden disabled>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="3" y="11" width="18" height="10" rx="2" />
         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -51,7 +63,7 @@
       </svg>
       Sign in with a passkey
     </button>
-    <div id="accessNote" class="meta">Access is limited to invited accounts.</div>
+    <p id="provider" class="meta" hidden></p>
     <details id="enroll" hidden><summary>Set up or recover an account</summary>
       <form id="register">
         <h2 style="font-size:16px;font-weight:400;margin:0 0 20px">Set up or recover an account</h2>
@@ -62,7 +74,10 @@
         <button id="registerPasskey" class="secondary" type="button">Use a passkey instead · no password needed</button>
       </form>
     </details>
-    <div id="msg" role="status" aria-live="polite"></div>
+    <div id="msg" role="status" aria-live="polite" aria-atomic="true"></div>
+    <button id="retry" class="secondary" type="button" hidden>Retry</button>
+    <noscript>Enable JavaScript to sign in to ShellGate.</noscript>
+    </section>
   </main>
   <script type="module">
     const btn = document.getElementById("btn");
@@ -101,11 +116,57 @@
       catch (e) { show(e.name === "NotAllowedError" ? "The passkey request was cancelled or timed out. Try again when ready." : e.message || "Sign-in failed."); }
       finally { btn.disabled = false; for (const el of document.querySelectorAll("button")) el.disabled = false; }
     }
+    const loading = document.getElementById("loading");
+    const retry = document.getElementById("retry");
+    const note = document.getElementById("accessNote");
+    const loginError = new URLSearchParams(location.search).get("error");
+    if (loginError) history.replaceState(null, "", location.pathname);
     async function main() {
-      const res = await fetch("/api/config", {credentials:"same-origin"});
+      retry.hidden = true;
+      loading.hidden = false;
+      show("");
+      const res = await fetch("/api/config", {credentials:"same-origin", signal: AbortSignal.timeout(10000)});
       if (!res.ok) throw new Error("Could not load sign-in settings. Please reload.");
       const cfg = await res.json();
-      if (cfg.authMode === "local") {
+      loading.hidden = true;
+      note.hidden = false;
+      if (loginError) {
+        const messages = {
+          not_allowed: "This account is not allowed. Ask the operator to add your email to the allowlist.",
+          unverified_email: "Your organization has not confirmed your email address. Contact your administrator.",
+          expired: "The sign-in request expired. Please try again.",
+          access_denied: "Sign-in was cancelled at the identity provider.",
+          provider_unavailable: "Could not connect to your sign-in provider. Please try again.",
+          login_failed: "Sign-in failed. Please try again.",
+        };
+        show(messages[loginError] || "Sign-in failed. Please try again.");
+      }
+      if (cfg.authMode === "sso" || cfg.authMode === "oidc") {
+        document.querySelector(".authentication").classList.add("sso");
+        document.getElementById("signinTitle").hidden = false;
+        note.textContent = "Use your organization account.";
+        btn.textContent = "Sign in with SSO";
+        btn.className = "primary";
+        btn.hidden = false;
+        if (cfg.ssoIssuer) {
+          const provider = document.getElementById("provider");
+          provider.textContent = new URL(cfg.ssoIssuer).hostname;
+          provider.hidden = false;
+        }
+        const reset = () => {
+          btn.disabled = false;
+          btn.textContent = "Sign in with SSO";
+          btn.removeAttribute("aria-busy");
+        };
+        window.addEventListener("pageshow", reset);
+        btn.addEventListener("click", () => {
+          show("");
+          btn.disabled = true;
+          btn.textContent = "Connecting…";
+          btn.setAttribute("aria-busy", "true");
+          location.assign("/api/sso/login");
+        });
+      } else if (cfg.authMode === "local") {
         document.getElementById("passwordLogin").hidden = false;
         document.getElementById("passwordLogin").addEventListener("submit", (e) => { e.preventDefault(); busy(async () => {
           await post("/api/password/login", {email:document.getElementById("loginEmail").value,password:document.getElementById("loginPassword").value});
@@ -140,9 +201,10 @@
           document.getElementById("invitation").value = "";
           location.replace("/");
         }); });
-      } else {
+      } else if (cfg.authMode === "supabase") {
         const { createClient } = await import("/__shellgate/external-auth.js");
         const supabase = createClient(cfg.supabaseUrl, cfg.anonKey, {auth:{experimental:{passkey:true},persistSession:false,autoRefreshToken:false}});
+        btn.hidden = false;
         btn.addEventListener("click", () => busy(async () => {
           const {data,error} = await supabase.auth.signInWithPasskey();
           if (error) throw error;
@@ -150,10 +212,21 @@
           await post("/api/session", {access_token:data.session.access_token});
           location.replace("/");
         }));
+      } else {
+        throw new Error("Sign-in is not configured. Contact your administrator.");
       }
       btn.disabled = false;
     }
-    main().catch((e) => { show(e.message || "Could not initialize sign-in."); btn.disabled = true; });
+    function initialize() {
+      main().catch(() => {
+        loading.hidden = true;
+        show("Could not load sign-in options. Check your connection and retry.");
+        retry.hidden = false;
+        btn.disabled = true;
+      });
+    }
+    retry.addEventListener("click", initialize);
+    initialize();
   </script>
 </body>
 </html>

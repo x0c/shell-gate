@@ -282,9 +282,14 @@ type netMonitor struct {
 	probeLastAt  time.Time
 	probeLastErr string
 	probeStatus  int
+	// onHealthChange 在单台健康翻转（healthy() 真值变化）时调用，锁外执行。
+	// 服务端用它重估「是否全部机器同时不可用」——多台同时失联几乎不可能是
+	// 多台上游同时宕机，而是门禁出口/覆盖网故障（2026-10-21 hk 边缘实测）。
 	clients      map[string]*netmonClientRecord
 	connections  map[*countingConn]struct{}
 	shuttingDown bool
+
+	onHealthChange func()
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -492,18 +497,25 @@ func readAndDiscard(resp *http.Response) (n int64, err error) {
 
 func (m *netMonitor) recordProbe(status int, err error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	was := m.healthyLocked()
 	m.probeLastAt = time.Now()
 	m.probeStatus = status
 	if err != nil {
 		m.probeFail++
 		m.probeStreak++
 		m.probeLastErr = err.Error()
-		return
+	} else {
+		m.probeOK++
+		m.probeStreak = 0
+		m.probeLastErr = ""
 	}
-	m.probeOK++
-	m.probeStreak = 0
-	m.probeLastErr = ""
+	flipped := was != m.healthyLocked()
+	hook := m.onHealthChange
+	m.mu.Unlock()
+	// 锁外调用：hook 会回查其它监控器的 healthy()，锁内调用会造成不可预期的锁顺序。
+	if flipped && hook != nil {
+		hook()
+	}
 }
 
 // putClientSample 收下浏览器上报，按页面去重保存；超出上限先清过期再淘汰最旧的。
@@ -643,10 +655,22 @@ func (m *netMonitor) upstreamSnapshot() netmonUpstream {
 func (m *netMonitor) healthy() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.healthyLocked()
+}
+
+func (m *netMonitor) healthyLocked() bool {
 	if m.probeLastAt.IsZero() {
 		return true
 	}
 	return m.probeStreak < 3
+}
+
+// lastError 返回最近一次探测失败的错误文本（机器列表接口用，便于区分
+// 超时 / 拒绝 / 鉴权 407 等不同死法）；健康时为空。
+func (m *netMonitor) lastError() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.probeLastErr
 }
 
 // failStreak 返回连续探测失败次数（机器列表接口用）。

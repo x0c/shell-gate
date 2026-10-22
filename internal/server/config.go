@@ -69,6 +69,7 @@ type Config struct {
 	AuthMode       string
 	PublicURL      string
 	Auth           authkit.Config
+	SSO            SSOConfig
 	DefaultPresets []store.DefaultPreset
 	DebugLogs      bool
 	Listen         string
@@ -115,6 +116,9 @@ func ConfigFromEnv() (Config, error) {
 			cfg.AuthMode = "supabase"
 		}
 	}
+	if cfg.AuthMode == "oidc" {
+		cfg.AuthMode = "sso"
+	}
 	if cfg.AuthMode == "supabase" {
 		auth, err := authkit.ConfigFromEnv()
 		if err != nil {
@@ -125,8 +129,15 @@ func ConfigFromEnv() (Config, error) {
 		}
 		cfg.Auth = auth
 	}
-	if cfg.AuthMode != "local" && cfg.AuthMode != "supabase" {
-		return Config{}, fmt.Errorf("SHELL_AUTH_MODE must be local or supabase")
+	if cfg.AuthMode == "sso" {
+		sso, err := parseSSOConfig()
+		if err != nil {
+			return Config{}, err
+		}
+		cfg.SSO = sso
+	}
+	if cfg.AuthMode != "local" && cfg.AuthMode != "supabase" && cfg.AuthMode != "sso" {
+		return Config{}, fmt.Errorf("SHELL_AUTH_MODE must be local, supabase or sso")
 	}
 
 	if cfg.AuthMode == "supabase" && (cfg.SupabaseURL == "" || cfg.SupabaseAnon == "") {
@@ -147,19 +158,21 @@ func ConfigFromEnv() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	if cfg.AuthMode == "local" {
-		if cfg.PublicURL == "" {
+	if cfg.AuthMode == "local" || cfg.AuthMode == "sso" {
+		if cfg.PublicURL == "" && strings.TrimSpace(os.Getenv(envEdgeHosts)) == "" {
 			cfg.PublicURL = "http://localhost:18765"
 		}
-		u, err := parsePublicURL(cfg.PublicURL)
-		if err != nil {
-			return Config{}, err
-		}
-		if u.Scheme == "http" {
-			cfg.CookieSecure = false
-		}
-		if u.Scheme == "https" && !cfg.CookieSecure {
-			return Config{}, fmt.Errorf("HTTPS requires secure cookies")
+		if cfg.PublicURL != "" {
+			u, err := parsePublicURL(cfg.PublicURL)
+			if err != nil {
+				return Config{}, err
+			}
+			if u.Scheme == "http" {
+				cfg.CookieSecure = false
+			}
+			if u.Scheme == "https" && !cfg.CookieSecure {
+				return Config{}, fmt.Errorf("HTTPS requires secure cookies")
+			}
 		}
 	}
 	if raw := strings.TrimSpace(os.Getenv("SHELL_DEFAULT_PRESETS")); raw != "" {
@@ -237,6 +250,9 @@ func ConfigFromEnv() (Config, error) {
 		return Config{}, fmt.Errorf("local passkeys currently require one gateway origin; use external authentication for multi-edge routing")
 	}
 	cfg.Edges = edges
+	if cfg.AuthMode == "sso" && len(edges) == 0 && strings.TrimSpace(cfg.PublicURL) == "" {
+		return Config{}, fmt.Errorf("SSO requires SHELL_PUBLIC_URL (redirect base) when edge routing is off")
+	}
 	cfg.DatabaseURL = strings.TrimSpace(os.Getenv(envDatabaseURL))
 	if cfg.DatabaseURL == "" {
 		cfg.DatabaseURL = filepath.Join(cfg.DataDir, "workspace.db")

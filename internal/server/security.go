@@ -43,7 +43,7 @@ func loadSessionKey(dir string) ([]byte, error) {
 }
 
 func (s *Server) requestOrigin(r *http.Request) string {
-	if s.cfg.PublicURL != "" {
+	if s.cfg.PublicURL != "" && !s.cfg.EdgeRoutingEnabled() {
 		return s.cfg.PublicURL
 	}
 	scheme := "https"
@@ -58,11 +58,18 @@ func (s *Server) protectRequests(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
-		if s.cfg.AuthMode == "local" && r.URL.Path != "/healthz" {
-			u, _ := url.Parse(s.cfg.PublicURL)
-			if u == nil || !strings.EqualFold(r.Host, u.Host) {
-				http.Error(w, "Unrecognized site address", http.StatusMisdirectedRequest)
-				return
+		if (s.cfg.AuthMode == "local" || s.cfg.AuthMode == "sso") && r.URL.Path != "/healthz" {
+			if s.cfg.EdgeRoutingEnabled() {
+				if !s.cfg.IsApexHost(r.Host) && !s.cfg.IsEdgeHost(r.Host) {
+					http.Error(w, "Unrecognized site address", http.StatusMisdirectedRequest)
+					return
+				}
+			} else {
+				u, _ := url.Parse(s.cfg.PublicURL)
+				if u == nil || !strings.EqualFold(r.Host, u.Host) {
+					http.Error(w, "Unrecognized site address", http.StatusMisdirectedRequest)
+					return
+				}
 			}
 		}
 		websocket := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")

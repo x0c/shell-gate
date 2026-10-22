@@ -35,6 +35,6 @@ Self-hosted browser terminal gateway. Read documents whose described contents ar
 - User mutations and their actor/action/target/time audit records commit in one transaction. Storage errors never mean an empty workspace.
 - Keep the server-provided machine directory, remembered tabs, per-machine active selection, interactive login shell, canvas renderer and mobile keyboard ownership contracts.
 - Private upstream transport never uses environment proxies. Strip browser identity headers and gateway credentials before forwarding. Reject unsafe URLs and cross-site WebSockets.
-- Use Go 1.26.9 or newer. Run full race tests, vet, lint, vulnerability and privacy checks. Real terminal changes require a ttyd handshake and input/output acceptance.
+- Use Go 1.26.10 or newer. Run full race tests, vet, lint, vulnerability and privacy checks. Real terminal changes require a ttyd handshake and input/output acceptance.
 - Build release packages with `python3 scripts/release.py --version VERSION` from a clean committed tree. Public exports must never include the earlier private history.
 - New long-lived documents require a descriptive navigation entry here or in the troubleshooting index. Root `CLAUDE.md` redirects to this file.

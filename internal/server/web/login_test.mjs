@@ -1,0 +1,96 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import test from 'node:test';
+
+const html=readFileSync(new URL('./login.html',import.meta.url),'utf8');
+const source=html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+const settle=()=>new Promise(setImmediate);
+
+// Exercise the actual page script with controllable network and lifecycle events.
+// This checks state transitions; browser layout and screenshots remain separate.
+function page(fetch,search='') {
+ const elements=new Map();
+ for (const match of html.matchAll(/<([a-z][a-z0-9]*)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
+  const [,tag,attrs,id]=match;
+  elements.set(id,{hidden:/\bhidden\b/.test(attrs),disabled:/\bdisabled\b/.test(attrs),textContent:'',events:{},attrs:{},
+   classList:{add(){}},addEventListener(name,fn){this.events[name]=fn;},setAttribute(name,value){this.attrs[name]=value;},removeAttribute(name){delete this.attrs[name];},
+   tag});
+ }
+ const lifecycle={};
+ const navigation=[];
+ const history=[];
+ const sandbox={document:{getElementById:id=>elements.get(id),querySelector:()=>({classList:{add(){}}}),querySelectorAll:()=>[...elements.values()].filter(e=>e.tag==='button')},
+  window:{isSecureContext:true,PublicKeyCredential:class {},addEventListener:(name,fn)=>{lifecycle[name]=fn;}},
+  location:{search,pathname:'/login',assign:url=>navigation.push(url)},history:{replaceState:(_s,_t,url)=>history.push(url)},
+  fetch,URL,URLSearchParams,AbortSignal,Uint8Array,console};
+ vm.runInNewContext(source,sandbox);
+ return {elements,lifecycle,navigation,history};
+}
+
+test('SSO loads without flashing passkeys, redirects once and restores on back',async()=>{
+ let complete;
+ const p=page(()=>new Promise(resolve=>{complete=resolve;}));
+ assert.equal(p.elements.get('btn').hidden,true);
+ assert.equal(p.elements.get('loading').hidden,false);
+ complete({ok:true,json:async()=>({authMode:'sso',ssoIssuer:'https://sso.example.com/realm'})});
+ await settle();
+ const button=p.elements.get('btn');
+ assert.equal(p.elements.get('loading').hidden,true);
+ assert.equal(button.hidden,false);
+ assert.equal(button.disabled,false);
+ assert.equal(button.className,'primary');
+ assert.equal(button.textContent,'Sign in with SSO');
+ assert.equal(p.elements.get('provider').textContent,'sso.example.com');
+ assert.equal(p.elements.get('passwordLogin').hidden,true);
+ assert.equal(p.elements.get('enroll').hidden,true);
+ button.events.click();
+ assert.deepEqual(p.navigation,['/api/sso/login']);
+ assert.equal(button.disabled,true);
+ assert.equal(button.textContent,'Connecting…');
+ assert.equal(button.attrs['aria-busy'],'true');
+ p.lifecycle.pageshow();
+ assert.equal(button.disabled,false);
+ assert.equal(button.textContent,'Sign in with SSO');
+ assert.equal(button.attrs['aria-busy'],undefined);
+});
+
+test('configuration failure stops loading and retry recovers',async()=>{
+ let requests=0;
+ const p=page(async()=>{
+  if (++requests===1) throw new Error('network');
+  return {ok:true,json:async()=>({authMode:'sso'})};
+ });
+ await settle();
+ assert.equal(p.elements.get('loading').hidden,true);
+ assert.equal(p.elements.get('retry').hidden,false);
+ assert.equal(p.elements.get('btn').hidden,true);
+ assert.match(p.elements.get('msg').textContent,/retry/);
+ p.elements.get('retry').events.click();
+ await settle();
+ assert.equal(requests,2);
+ assert.equal(p.elements.get('retry').hidden,true);
+ assert.equal(p.elements.get('btn').disabled,false);
+ assert.equal(p.elements.get('msg').textContent,'');
+});
+
+test('callback error uses safe actionable copy and removes URL parameters',async()=>{
+ const p=page(async()=>({ok:true,json:async()=>({authMode:'sso'})}),'?error=unverified_email&code=sensitive');
+ await settle();
+ assert.match(p.elements.get('msg').textContent,/Contact your administrator/);
+ assert.deepEqual(p.history,['/login']);
+ assert.equal(p.elements.get('btn').disabled,false);
+});
+
+
+test('local mode retains password sign-in and account setup',async()=>{
+ const p=page(async()=>({ok:true,json:async()=>({authMode:'local'})}));
+ await settle();
+ assert.equal(p.elements.get('passwordLogin').hidden,false);
+ assert.equal(p.elements.get('enroll').hidden,false);
+ assert.equal(p.elements.get('btn').hidden,false);
+ assert.equal(p.elements.get('signinTitle').hidden,true);
+ assert.equal(p.elements.get('provider').hidden,true);
+ assert.ok(p.elements.get('passwordLogin').events.submit);
+ assert.ok(p.elements.get('register').events.submit);
+});

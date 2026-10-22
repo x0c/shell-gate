@@ -281,6 +281,15 @@ graph TD
 `Config.probeIdentity()` 给出的邮箱（`internal/server/netmon.go` 探测构造处）。
 守卫测试：`TestNetmonProbeCarriesTrustedIdentity()`（`internal/server/server_test.go`）。
 
+任一上游健康翻转（`healthy()` 真值变化）时经 `onHealthChange` 回调重估全局：
+进入「全部机器同时不可用」记一行（含机器名），恢复再记一行，单台抖动不打扰。
+多台同时失联几乎不可能是多台上游同时宕机——2026-10-21 实测是门禁边缘到上游的
+整条覆盖网单向中断，而两台上游本身都活着；这行日志就是为这种情况指方向。
+`GET /api/machines` 条目另带 `lastError`（最近探测错误文本，健康时为空），
+便于在面板或 `curl` 里直接区分超时 / 拒绝 / 407。
+守卫测试：`TestRecordProbeFlipsHealthHook()`、`TestAllUpstreamsDownNotifiesOnce()`、
+`TestMachinesEndpointShowsLastError()`（`internal/server/server_test.go`）。
+
 ### 5.6 帧约束：工作台与终端页不得互相嵌套
 
 - 工作台与登录页响应头带 `frame-ancestors 'none'`（`denyFraming()`，
@@ -357,7 +366,8 @@ go test -race ./...
   `TestInteractiveLoginCommandHasNoRawControlChars()`、`TestProxyRewriteInjectsTrustedAuthHeaderAndCommand()`、
   `TestInjectEnhanceScriptPlainHTML()`、`TestInjectEnhanceScriptGzipHTML()`、
   `TestCountingConnForwardsCloseWrite()`、`TestNetmonProbeCarriesTrustedIdentity()`、
-  `TestMachinesEndpoint()`、`TestCreateTabRoutesToMachine()`、
+  `TestRecordProbeFlipsHealthHook()`、`TestAllUpstreamsDownNotifiesOnce()`、
+  `TestMachinesEndpointShowsLastError()`、`TestMachinesEndpoint()`、`TestCreateTabRoutesToMachine()`、
   `TestRootServesWorkspaceWithCanvasRendererQuery()`、
   `TestWorkspaceHTMLHasNetmonEntryAndResponsiveTopBar()`。
 - 回归通过不替代验证一：握手升级路径只有真连才能覆盖。

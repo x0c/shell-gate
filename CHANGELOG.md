@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.2.0
+
+### English
+
+- Add optional generic OIDC SSO with Discovery, Authorization Code + S256 PKCE, maintained token verification, exact email allowlists and subject-bound UserInfo. Local password and passkey login remain available in local mode.
+- Harden email verification, authorized-party/subject checks, provider HTTP transport, login-state cleanup and provider-bound gateway sessions; support apex callbacks and same-edge origins. Pass SSO settings through Compose.
+- Give SSO a clear primary sign-in action, visible provider context, redirect feedback, back-navigation recovery and retryable configuration errors; retain the existing desktop/mobile layout.
+- Require Go 1.26.10 for the crypto/x509 certificate-distrust security fix.
+
+### 简体中文
+
+- 新增可选通用 OIDC SSO，支持 Discovery、授权码与 S256 PKCE、成熟库令牌校验、精确邮箱白名单及绑定同一账号的 UserInfo。本地模式继续提供密码和通行密钥登录。
+- 加固邮箱验证、授权方与账号声明、身份源 HTTP 传输、登录状态清理和绑定身份源的门禁会话；支持 apex 回调和边缘同站请求，Compose 传递 SSO 配置。
+- 突出 SSO 主登录入口，显示身份源信息，提供跳转反馈、浏览器返回恢复及配置加载失败重试，保留现有桌面与手机布局。
+- 构建要求升级至 Go 1.26.10，包含 crypto/x509 证书信任安全修复。
+
+## v0.1.5
+
+### English
+
+- Log once when all upstream machines become unreachable at the same time (and once on recovery), pointing at the edge egress path instead of each upstream; expose the latest probe error per machine in `GET /api/machines` so timeouts, refusals and auth rejections are distinguishable without reading gateway logs.
+- Add an edge-egress troubleshooting record for a single edge losing all machines at once while another edge stays healthy (two-ended packet capture, conntrack double sampling, underlay protocol matrix).
+
+### 简体中文
+
+- 全部上游机器同时不可用时记一行日志（含机器名，恢复时再记一行），直接指向边缘出口方向而非逐台排查上游；`GET /api/machines` 每个条目新增最近探测错误文本，超时、拒绝、鉴权失败无需翻网关日志即可区分。
+- 新增单边缘全部机器同时变红、另一边缘正常的排障记录（两端抓包、conntrack 双采样、underlay 协议矩阵）。
+
 ## v0.1.4
 
 ### English

@@ -24,8 +24,8 @@ Caddy obtains a certificate and the override sets the gateway's public URL to th
 | Setting | Default / behavior |
 | --- | --- |
 | `SHELL_ALLOWED_EMAILS` | Required comma-separated emails; no author account or wildcard default. |
-| `SHELL_PUBLIC_URL` | `http://localhost:18765`; exact origin, HTTPS outside localhost. |
-| `SHELL_AUTH_MODE` | `local`; legacy external settings select `supabase` for compatibility. |
+| `SHELL_PUBLIC_URL` | `http://localhost:18765`; exact origin, HTTPS outside localhost. SSO uses it as the callback base when edge routing is off. |
+| `SHELL_AUTH_MODE` | `local`; legacy external settings select `supabase` for compatibility; `sso` (alias `oidc`) selects generic OIDC. |
 | `SHELL_LISTEN` | `127.0.0.1:18765`; constrain exposure with host/firewall or Compose bind address. |
 | `SHELL_TTYD_URL` | `http://127.0.0.1:7681`; private HTTP(S) URL without embedded credentials or query. |
 | `SHELL_TTYD_TARGETS` | Optional `local=http://terminal:7681,build=https://terminal.example.com`; first entry default. |
@@ -39,7 +39,7 @@ Caddy obtains a certificate and the override sets the gateway's public URL to th
 | `SHELL_WAKE_COMMANDS` / `SHELL_SESSION_LEASE_COMMANDS` | Optional machine-to-executable hook maps; see Mac guide. |
 | `SHELL_WAKE_HOME_PRESENCE_*` | Optional presence policy; never needed for local deployment. |
 
-Compose exposes its documented settings in `.env`; advanced upstream/provider settings require editing an override's `environment`. The program itself reads the process environment, not `.env` files. Invalid settings fail startup. `shell-gate doctor --json` validates configuration without contacting an upstream or writing data; `invite --dry-run --json` validates an invitation without creating it. CLI JSON uses `{ok,data}` on success and `{ok:false,error:{code,message}}` on failure; exit 0 means success, 1 failure. Invitation output intentionally contains a secret; never send it to application logs.
+Compose passes the SSO settings below from `.env`; advanced upstream settings and the legacy GoTrue adapter require an override's `environment`. The program itself reads the process environment, not `.env` files. Invalid settings fail startup. `shell-gate doctor --json` validates configuration without contacting an upstream or writing data; `invite --dry-run --json` validates an invitation without creating it. CLI JSON uses `{ok,data}` on success and `{ok:false,error:{code,message}}` on failure; exit 0 means success, 1 failure. Invitation output intentionally contains a secret; never send it to application logs.
 
 ## Direct binary and service
 
@@ -50,6 +50,30 @@ For Linux service management, place the committed release binary in `/opt/shell-
 ## Optional providers
 
 External GoTrue: set `SHELL_AUTH_MODE=supabase`, `SHELL_SUPABASE_URL`, `SHELL_SUPABASE_ANON_KEY`, `AUTH_JWT_SECRET` (at least 32 bytes), `AUTH_JWT_ISSUERS` and `AUTH_JWT_AUDIENCE`. This compatibility adapter expects HS256 identity tokens and a provider supporting the SDK's passkey API. No private SDK checkout or CDN is required. Local login does not expose the external token-exchange route.
+
+### Generic OIDC SSO
+
+This optional adapter supports a confidential OIDC web client with Discovery, asymmetric signed ID tokens, S256 PKCE and `client_secret_basic` or `client_secret_post` authentication. It does not implement SAML, public clients or `private_key_jwt`. Local password/passkey authentication remains the default.
+
+1. Register a web client at your provider. Set its exact redirect URI to `https://shell.example.com/api/sso/callback`; for local development use `http://localhost:18765/api/sso/callback`. In multi-edge mode register the apex origin callback, never an individual edge.
+2. Set the browser-visible `SHELL_PUBLIC_URL`, `SHELL_ALLOWED_EMAILS` and the following process environment (or `.env` for Compose):
+
+   ```sh
+   SHELL_AUTH_MODE=sso
+   SHELL_SSO_ISSUER=https://sso.example.com/realms/shellgate
+   SHELL_SSO_CLIENT_ID=shell-gate
+   SHELL_SSO_CLIENT_SECRET=<provider-issued-secret>
+   ```
+
+3. Restart/recreate the gateway and open `/login`. Choose **Sign in with SSO**. The callback performs the code exchange on the server; the secret and provider tokens never enter frontend configuration. Test an allowed account, a denied account, cancellation and logout.
+
+`oidc` is accepted as an alias for `sso`. Copy the issuer exactly from Discovery, including a trailing slash if present. Optional `SHELL_SSO_SCOPES` defaults to `openid email profile`; explicit scopes are preserved with `openid` added when needed. `SHELL_SSO_EMAIL_CLAIM` defaults to `email` and is honored exactly, with no automatic username/UPN aliases. The claim may come from a verified ID token or subject-matched UserInfo. By default that same claim source must contain boolean `email_verified=true`; missing, false or string values fail closed. If an enterprise provider verifies addresses administratively but omits this claim, configure its mapper first or explicitly set `SHELL_SSO_ALLOW_UNVERIFIED_EMAIL=true` only when the provider prevents users from choosing an allowlisted address.
+
+Syntax errors fail startup. Provider reachability is checked when login starts, so a short provider outage does not prevent an existing gateway session from working. Tokens must pass signature, exact issuer, audience, subject, issued-at, expiry, authorized-party and nonce checks. Invalid tokens never fall back to UserInfo. Provider redirects, unsafe endpoints, HTTPS downgrade and oversized responses are rejected. Provider and token response contents are not logged.
+
+The gateway enforces the current email allowlist on login and every session request. Workspace metadata belongs to the normalized email, consistent with other adapters; prevent email reassignment at your provider. SSO does not need local invitations. After login the gateway issues its own cookie with `SHELL_SESSION_TTL` (default `12h`), independently of provider token lifetime. Logging out clears only this cookie, so the next login may reuse an existing provider session. Immediate provider-side logout/revocation is not propagated; remove an email from the gateway allowlist to deny its existing sessions.
+
+Multi-edge operation needs shared PostgreSQL, secure shared-domain session cookies and identical issuer/client/secret/apex settings. The ten-minute login-state cookie is apex-host-only; the completed gateway session is shared with the configured edges. The session key is derived from the client secret plus issuer, client ID and origin; changing any of these invalidates existing SSO sessions. Back up credentials privately; never commit `.env` or print a fully expanded Compose configuration containing the secret.
 
 PostgreSQL: provision an operator-owned database with schema creation privileges, then supply `SHELL_DATABASE_URL`. Use verified TLS across hosts. Existing multi-edge operation requires external authentication, shared PostgreSQL, a cookie domain and configured edge hosts; local ceremonies deliberately reject multi-edge routing. A separate migration import transfers tabs/presets only and never copies local credentials or signing keys.
 

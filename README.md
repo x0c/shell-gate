@@ -55,18 +55,19 @@ Run `shell-gate invite --email you@example.com` with the same settings in anothe
 ## Features
 
 - Local email/password login, optional passkeys and one-use invitations; explicit email allowlist.
+- Optional external login: legacy GoTrue adapter or generic OIDC SSO (Authorization Code + PKCE, Discovery/JWKS).
 - Account-owned tabs and launchers saved across refreshes and browser sign-ins.
 - Multiple ttyd hosts, per-machine tabs and remembered active selection.
 - Compact desktop tabs, touch scrolling and mobile terminal shortcut keys.
 - Runtime light/dark themes, clipboard bridges and terminal screenshots.
-- Optional PostgreSQL, external GoTrue authentication and wake/lease hooks.
+- Optional PostgreSQL, external authentication (GoTrue or generic OIDC SSO) and wake/lease hooks.
 - Embedded browser assets and optional diagnostics, disabled by default.
 
 The default stack needs no remote service at runtime. Initial downloads require internet access; public HTTPS certificate issuance also does. Preload images and provide a browser-trusted certificate for isolated operation. ShellGate has no paid service dependency; your server, domain and provider choices may have their own costs.
 
 ## Deploy and configure
 
-See [deployment](docs/DEPLOYMENT.md) for HTTPS, multiple hosts, direct services, backups and upgrades; [.env.example](.env.example) for initial settings; and [architecture](docs/ARCHITECTURE.md) for adapters and extension contracts. Build locally with Go 1.26.9+ using `go build ./cmd/shell-gate`.
+See [deployment](docs/DEPLOYMENT.md) for HTTPS, multiple hosts, direct services, backups and upgrades; [.env.example](.env.example) for initial settings; and [architecture](docs/ARCHITECTURE.md) for adapters and extension contracts. Build locally with Go 1.26.10+ using `go build ./cmd/shell-gate`.
 
 **Trust boundary:** invited people receive the configured terminal account's OS privileges. Gateway account isolation protects tabs and presets; it does not isolate files or processes within a shared OS account. All allowed accounts can access every configured machine. Keep ttyd private; use separate gateway + ttyd stacks with distinct allowlists/domains and OS accounts/containers/hosts when users require isolation. See [security](SECURITY.md).
 

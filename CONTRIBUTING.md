@@ -2,7 +2,7 @@
 
 Read [AGENTS.md](AGENTS.md) and the relevant design documents first. Keep changes focused and preserve terminal, mobile keyboard, account isolation and persistent-tab behavior.
 
-Use Go 1.26.9 or newer. Run `go test -race ./...`, `go vet ./...`, `golangci-lint run ./...` and `govulncheck ./...`. Keep full diagnostics and explain any retained finding. Run the real affected path; terminal changes require a real ttyd WebSocket handshake and input/output check.
+Use Go 1.26.10 or newer. Run `go test -race ./...`, `go vet ./...`, `golangci-lint run ./...` and `govulncheck ./...`. For browser logic, run `node --test internal/server/web/login_test.mjs internal/server/web/enhance_zoom_test.mjs internal/server/web/enhance_query_frame_test.mjs` with Node 22 or newer. Keep full diagnostics and explain any retained finding. Run the real affected path; terminal changes require a real ttyd WebSocket handshake and input/output check.
 
 Do not add private hosts, personal addresses, credentials, database files or screenshots containing personal data. Run `python3 scripts/check-public.py` before publishing. Report vulnerabilities privately using GitHub's private vulnerability reporting when enabled; otherwise contact the maintainer through the profile linked by this repository.
 

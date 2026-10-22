@@ -60,6 +60,7 @@ type Server struct {
 	sessionVerifier TokenVerifier
 	passkeys        *localPasskeys
 	passwords       *passwordGuard
+	oidc            *oidcClient
 	sessionSecret   []byte
 	sessionIssuer   string
 	sessionAudience string
@@ -69,6 +70,10 @@ type Server struct {
 	upstreams       []*upstream // 顺序即配置顺序（展示顺序），第一台是默认机器
 	upstreamByName  map[string]*upstream
 	ready           bool
+	// allDownNotified 标记「全部上游同时不可用」是否已记过一行日志，避免每 15s
+	// 刷一条；恢复后再进全红会重新记。见 noteUpstreamHealthChanged。
+	healthMu        sync.Mutex
+	allDownNotified bool
 	mu              sync.RWMutex
 	wg              sync.WaitGroup
 }
@@ -84,6 +89,7 @@ func (s *Server) initUpstreams() {
 	for _, mc := range s.cfg.Machines {
 		u := &upstream{name: mc.Name, target: mc.URL}
 		u.netmon = newNetMonitor(mc.URL, s.cfg.NetmonInterval, s.cfg.probeIdentity())
+		u.netmon.onHealthChange = s.noteUpstreamHealthChanged
 		u.proxy = newTTYDProxy(mc.URL, u.netmon)
 		if mc.WakeCommand != "" {
 			var homeCheck homePresence
@@ -100,6 +106,31 @@ func (s *Server) initUpstreams() {
 	}
 }
 
+// noteUpstreamHealthChanged 在任一上游健康翻转时重估全局。多台机器同时不可用
+// 几乎不可能是多台上游同时宕机——2026-10-21 实测是门禁边缘到家里的整条覆盖网
+// 单向中断，而两台上游本身都活着。只在进出「全红」时各记一行：平时单台抖动不打扰，
+// 全红时直接给出排查方向，避免对着每台上游逐台误排。
+func (s *Server) noteUpstreamHealthChanged() {
+	down := make([]string, 0, len(s.upstreams))
+	for _, u := range s.upstreams {
+		if !u.netmon.healthy() {
+			down = append(down, u.name)
+		}
+	}
+	s.healthMu.Lock()
+	defer s.healthMu.Unlock()
+	allDown := len(s.upstreams) > 0 && len(down) == len(s.upstreams)
+	switch {
+	case allDown && !s.allDownNotified:
+		s.allDownNotified = true
+		log.Printf("上游机器全部不可用(n=%d, machines=%s)：多台同时失联优先排查门禁出口/覆盖网，而非逐台重启上游",
+			len(down), strings.Join(down, ","))
+	case !allDown && s.allDownNotified:
+		s.allDownNotified = false
+		log.Printf("上游机器恢复可用(healthy=%d/%d)", len(s.upstreams)-len(down), len(s.upstreams))
+	}
+}
+
 // primaryUpstream 是默认机器：门禁自身指标与浏览器上报（与机器无关）挂在这一份下。
 func (s *Server) primaryUpstream() *upstream {
 	if len(s.upstreams) == 0 {
@@ -110,6 +141,9 @@ func (s *Server) primaryUpstream() *upstream {
 
 // New 构造服务。
 func New(cfg Config) (*Server, error) {
+	if cfg.AuthMode == "oidc" {
+		cfg.AuthMode = "sso"
+	}
 	if cfg.AuthMode == "" {
 		cfg.AuthMode = "local"
 		if cfg.SupabaseURL != "" {
@@ -122,6 +156,7 @@ func New(cfg Config) (*Server, error) {
 	var verifier TokenVerifier
 	var passkeys *localPasskeys
 	var passwords *passwordGuard
+	var oidc *oidcClient
 	var key []byte
 	var err error
 	switch cfg.AuthMode {
@@ -132,6 +167,33 @@ func New(cfg Config) (*Server, error) {
 		}
 		derived := sha256.Sum256(append([]byte("shellgate-session:v1:"), cfg.Auth.Secret...))
 		key = derived[:]
+	case "sso":
+		if cfg.SSO.EmailClaim == "" {
+			cfg.SSO.EmailClaim = "email"
+		}
+		cfg.SSO.Scopes = parseSSOScopes(strings.Join(cfg.SSO.Scopes, " "))
+		if err := cfg.SSO.validate(); err != nil {
+			return nil, err
+		}
+		if cfg.EdgeRoutingEnabled() && !cfg.CookieSecure {
+			return nil, fmt.Errorf("SSO edge routing requires secure cookies")
+		}
+		if !cfg.EdgeRoutingEnabled() {
+			origin, err := parsePublicURL(cfg.PublicURL)
+			if err != nil {
+				return nil, err
+			}
+			if origin.Scheme == "https" && !cfg.CookieSecure {
+				return nil, fmt.Errorf("HTTPS requires secure cookies")
+			}
+		}
+		origin := strings.TrimRight(cfg.PublicURL, "/")
+		if cfg.EdgeRoutingEnabled() {
+			origin = cfg.ApexOrigin()
+		}
+		derived := sha256.Sum256([]byte("shellgate-sso:v1:" + cfg.SSO.Issuer + "\x00" + cfg.SSO.ClientID + "\x00" + origin + "\x00" + cfg.SSO.ClientSecret))
+		key = derived[:]
+		oidc = newOIDCClient(cfg.SSO)
 	case "local":
 		origin, err := parsePublicURL(cfg.PublicURL)
 		if err != nil {
@@ -188,6 +250,7 @@ func New(cfg Config) (*Server, error) {
 		sessionVerifier: sessionVerifier,
 		passkeys:        passkeys,
 		passwords:       passwords,
+		oidc:            oidc,
 		store:           st,
 		tabs:            tabs,
 		ready:           true,
@@ -209,6 +272,10 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("GET /api/machines", s.handleMachines)
 	mux.HandleFunc("POST /api/machines/{name}/ready", s.handleMachineReady)
 	mux.HandleFunc("POST /api/session", s.handleSession)
+	if s.cfg.AuthMode == "sso" {
+		mux.HandleFunc("GET /api/sso/login", s.handleSSOLogin)
+		mux.HandleFunc("GET /api/sso/callback", s.handleSSOCallback)
+	}
 	if s.passkeys != nil {
 		mux.HandleFunc("POST /api/password/register", s.handlePasswordRegister)
 		mux.HandleFunc("POST /api/password/login", s.handlePasswordLogin)
@@ -286,6 +353,9 @@ func (s *Server) Shutdown() error {
 		u.netmon.stopLoop()
 		u.netmon.closeConnections()
 	}
+	if s.oidc != nil {
+		s.oidc.http.CloseIdleConnections()
+	}
 	err := s.httpSrv.Shutdown(ctx)
 	s.wg.Wait()
 	return errors.Join(err, s.store.Close())
@@ -341,6 +411,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"supabaseUrl": s.cfg.SupabaseURL,
 		"anonKey":     s.cfg.SupabaseAnon,
 	}
+	if s.cfg.AuthMode == "sso" {
+		out["ssoIssuer"] = s.cfg.SSO.Issuer
+	}
 	if s.cfg.EdgeRoutingEnabled() {
 		out["apexOrigin"] = s.cfg.ApexOrigin()
 		edges := make([]map[string]string, 0, len(s.cfg.Edges))
@@ -383,12 +456,15 @@ func (s *Server) handleEdgeProbe(w http.ResponseWriter, r *http.Request) {
 
 // machineView 是 /api/machines 的单个条目。机器目录由服务端下发（含展示名），
 // 客户端不内置任何机器名--新增机器后所有客户端不刷新即可见。
+// LastError 是最近一次探测失败文本（超时 / 拒绝 / 407 等），健康时为空，
+// 便于在面板或 curl 里直接区分死法，不必再翻网关日志。
 type machineView struct {
 	Name       string `json:"name"`
 	Target     string `json:"target"`
 	Default    bool   `json:"default"`
 	Healthy    bool   `json:"healthy"`
 	FailStreak int    `json:"failStreak"`
+	LastError  string `json:"lastError,omitempty"`
 	Wakeable   bool   `json:"wakeable"`
 }
 
@@ -407,6 +483,7 @@ func (s *Server) handleMachines(w http.ResponseWriter, r *http.Request) {
 			Default:    u.name == defaultName,
 			Healthy:    u.netmon.healthy(),
 			FailStreak: u.netmon.failStreak(),
+			LastError:  u.netmon.lastError(),
 			Wakeable:   u.waker != nil,
 		})
 	}

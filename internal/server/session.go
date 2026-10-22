@@ -18,7 +18,7 @@ type sessionRequest struct {
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
-	if s.passkeys != nil {
+	if s.verifier == nil {
 		http.NotFound(w, r)
 		return
 	}

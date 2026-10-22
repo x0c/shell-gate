@@ -7,6 +7,7 @@
 |---|---|
 | [2026-08-05-terminal-echo-latency.md](2026-08-05-terminal-echo-latency.md) | 排查「终端卡 / 打字慢 / 回显 P95 虚高」、区分 CPU vs 网络、改回显/网络监控计时口径，或接入全屏 TUI 预置前 |
 | [2026-09-10-mac-corral-line-by-line-refresh.md](2026-09-10-mac-corral-line-by-line-refresh.md) | 排查或回归「外网经网关连 Mac 跑全屏 TUI 一行行刷 / 秒断 reconnect / 中继侧丝滑 Mac 撕帧」、改 Mac ttyd/lws 构建或 `shell-gate-ttyd`、怀疑缺 `permessage-deflate`、误想降刷新/拼帧/换有线前**必读**。不读会退回 Homebrew 无压缩 ttyd、用 lws 5.0+extensions 弄断粘贴，或把 Wi-Fi 当根因 |
+| [2026-10-21-edge-egress-udp-blackhole.md](2026-10-21-edge-egress-udp-blackhole.md) | 单边缘全部机器同时变红、另一边缘正常，怀疑门禁出口/覆盖网而非上游时；含两端抓包、conntrack 双采样、underlay 协议矩阵、DNS 劫持坑 |
 | [2026-10-15-mac-unreachable-after-wake.md](2026-10-15-mac-unreachable-after-wake.md) | Mac 唤醒后仍连接失败的路由器与本机诊断；2026-10-15 磁盘耗尽、交换文件失败、严重内存压力和手动强制重启的证据及归因边界 |
 | [2026-08-20-tui-display-corruption.md](2026-08-20-tui-display-corruption.md) | 排查「TUI 乱码 / 中文消失 / 怪字 / 调窗口才恢复」、改渲染器，或评估是否改回 WebGL 前 |
 | [2026-09-05-dual-upstream-security-audit.md](2026-09-05-dual-upstream-security-audit.md) | 评审或排查双上游 / Mac SSH / ttyd 边界、组网谁可达 22、密码登录与 pf/iptables 加固前 |

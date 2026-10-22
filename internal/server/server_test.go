@@ -2257,3 +2257,123 @@ func TestNetmonSnapshotSplitsUpstreams(t *testing.T) {
 		t.Fatalf("各Machine的地址不对: %+v", multi.Upstreams)
 	}
 }
+
+func twoMachineTestServer(t *testing.T) *Server {
+	t.Helper()
+	u1, _ := url.Parse("http://203.0.113.2:7681")
+	u2, _ := url.Parse("http://203.0.113.9:7681")
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	cfg := Config{
+		Listen: "127.0.0.1:0", AllowedEmails: map[string]struct{}{"operator@example.com": {}},
+		SupabaseURL: "https://auth.example.com", SupabaseAnon: "anon",
+		Machines:   []MachineConfig{{Name: "linux", URL: u1}, {Name: "tokyo", URL: u2}},
+		CookieName: "shell_session", SessionTTL: time.Hour,
+		DataDir: dir, DatabaseURL: filepath.Join(dir, "t.db"), NetmonInterval: 0,
+	}
+	verifier, err := authkit.New(authkit.Config{
+		Secret: []byte(testSecret), Issuers: []string{"https://auth.example.com"}, Audience: "authenticated",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{cfg: cfg, verifier: verifier, sessionSecret: []byte(testSecret),
+		sessionIssuer: "https://auth.example.com", sessionAudience: "authenticated",
+		store: st, tabs: mustTabStore(t, st), ready: true}
+	s.initUpstreams()
+	return s
+}
+
+func failProbe(t *testing.T, m *netMonitor, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		m.recordProbe(0, errors.New("dial tcp 203.0.113.2:7681: i/o timeout"))
+	}
+}
+
+// TestRecordProbeFlipsHealthHook 守健康翻转才调 hook：3 次连续失败翻一次，
+// 恢复成功再翻一次，中间的抖动不打扰。
+func TestRecordProbeFlipsHealthHook(t *testing.T) {
+	u, _ := url.Parse("http://203.0.113.2:7681")
+	m := newNetMonitor(u, 0, "operator@example.com")
+	calls := 0
+	m.onHealthChange = func() { calls++ }
+	failProbe(t, m, 2)
+	if calls != 0 {
+		t.Fatalf("2 连败仍健康，不应调 hook，调了 %d 次", calls)
+	}
+	failProbe(t, m, 1)
+	if calls != 1 {
+		t.Fatalf("第 3 次失败应恰好调一次 hook，调了 %d 次", calls)
+	}
+	if m.healthy() {
+		t.Fatal("3 连败后应不健康")
+	}
+	m.recordProbe(200, nil)
+	if calls != 2 || !m.healthy() {
+		t.Fatalf("恢复成功应再翻一次，calls=%d healthy=%v", calls, m.healthy())
+	}
+}
+
+// TestAllUpstreamsDownNotifiesOnce 守「全红」只记一行、恢复记一行、再红重记。
+// 2026-10-21 教训：单边缘到家里的覆盖网单向中断时，两台上游同时变红，
+// 日志里只有逐台的反代失败，没有一句指出这是门禁出口问题。
+func TestAllUpstreamsDownNotifiesOnce(t *testing.T) {
+	s := twoMachineTestServer(t)
+	failProbe(t, s.upstreams[0].netmon, 3)
+	s.healthMu.Lock()
+	notified := s.allDownNotified
+	s.healthMu.Unlock()
+	if notified {
+		t.Fatal("只红一台时不应进全红状态")
+	}
+	failProbe(t, s.upstreams[1].netmon, 3)
+	s.healthMu.Lock()
+	notified = s.allDownNotified
+	s.healthMu.Unlock()
+	if !notified {
+		t.Fatal("两台全红后应标记已通知")
+	}
+	// 再败也不应重复标记（日志只记一行由标记保证）。
+	failProbe(t, s.upstreams[0].netmon, 2)
+	s.upstreams[0].netmon.recordProbe(200, nil)
+	s.healthMu.Lock()
+	notified = s.allDownNotified
+	s.healthMu.Unlock()
+	if notified {
+		t.Fatal("恢复一台后应清除全红标记")
+	}
+}
+
+// TestMachinesEndpointShowsLastError 守 /api/machines 带出最近探测错误，
+// 便于在面板或 curl 里直接区分超时 / 拒绝 / 407，不必再翻网关日志。
+func TestMachinesEndpointShowsLastError(t *testing.T) {
+	s := newTestServer(t)
+	token := signToken(t, "operator@example.com")
+	get := func() machineView {
+		req := withSession(httptest.NewRequest(http.MethodGet, "/api/machines", nil), token)
+		w := httptest.NewRecorder()
+		s.handleMachines(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("期望 200，得到 %d", w.Code)
+		}
+		var body struct {
+			Machines []machineView `json:"machines"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("响应不是合法 JSON: %v", err)
+		}
+		return body.Machines[0]
+	}
+	if m := get(); m.LastError != "" || !m.Healthy {
+		t.Fatalf("健康时 LastError 应为空: %+v", m)
+	}
+	failProbe(t, s.primaryUpstream().netmon, 3)
+	if m := get(); m.Healthy || m.FailStreak != 3 || !strings.Contains(m.LastError, "i/o timeout") {
+		t.Fatalf("失联后应带出错误文本: %+v", m)
+	}
+}
