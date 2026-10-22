@@ -52,10 +52,15 @@ $env:SHELL_ALLOWED_EMAILS='you@example.com'; $env:SHELL_TTYD_URL='http://127.0.0
 
 Run `shell-gate invite --email you@example.com` with the same settings in another terminal. Add the installer's reported directory to PATH if needed. [Release downloads](https://github.com/x0c/shell-gate/releases/latest) include checksums and binaries for amd64 and arm64 on all three platforms. Windows runs the gateway; its terminal backend is a Unix host or the Compose container.
 
+## Two-factor authentication
+
+Open **Security** in the workspace (or **More → Account security** on mobile), choose **Set up authenticator**, scan the QR code or enter its key, then confirm a six-digit code. Save the ten recovery codes before closing the window. Each account chooses whether to enable 2FA; no global switch or external service is needed. Once enabled, every sign-in requires an authenticator or unused recovery code. See [recovery and backups](docs/DEPLOYMENT.md#two-factor-authentication) before enabling it.
+
 ## Features
 
 - Local email/password login, optional passkeys and one-use invitations; explicit email allowlist.
 - Optional external login: legacy GoTrue adapter or generic OIDC SSO (Authorization Code + PKCE, Discovery/JWKS).
+- Optional per-account TOTP 2FA: self-service authenticator setup, one-use recovery codes and protection across every sign-in route.
 - Account-owned tabs and launchers saved across refreshes and browser sign-ins.
 - Multiple ttyd hosts, per-machine tabs and remembered active selection.
 - Compact desktop tabs, touch scrolling and mobile terminal shortcut keys.

@@ -13,7 +13,7 @@
 3. **会话 TTL / 探测间隔配错必须启动失败**
    旧 `getEnvDuration` 对非法值静默回落默认；`SHELL_SESSION_TTL=0` / 负值也能进进程（Cookie/JWT 边界错乱）。现：`parsePositiveDuration`（会话）与 `parseNonNegativeDuration`（探测，`0` 仍表示只被动统计）。
 
-   `mintSessionToken` 在已有 `emailAllowed` 之外再拒空邮箱，避免无邮箱身份写进 Cookie。
+   `mintSessionWithFactors` 在已有 `emailAllowed` 之外再拒空邮箱，避免无邮箱身份写进 Cookie。
 
 ## 已核对、未改（非缺陷或产品边界）
 

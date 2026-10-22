@@ -17,7 +17,7 @@ docker compose -f compose.yaml -f compose.https.yaml up -d --build
 docker compose -f compose.yaml -f compose.https.yaml exec gate shell-gate invite --email you@example.com
 ```
 
-Caddy obtains a certificate and the override sets the gateway's public URL to that exact HTTPS origin. Open `https://shell.example.com/login`. Passkeys for localhost do not migrate to another domain; create an invitation and enroll at the final origin. An existing reverse proxy can forward HTTP and WebSocket upgrades to the loopback port instead. Always set `SHELL_PUBLIC_URL` to the browser-visible origin. For isolated deployments, preload images and use an operator-provided trusted TLS certificate instead of public certificate issuance.
+Caddy obtains a certificate and the override sets the gateway's public URL to that exact HTTPS origin. Open `https://shell.example.com/login`. Passkeys for localhost do not migrate to another domain; create an invitation and enroll at the final origin. An existing reverse proxy can forward HTTP and WebSocket upgrades to the loopback port instead. Always set `SHELL_PUBLIC_URL` to the browser-visible origin. Local authentication requires a hostname (`localhost` for development), not an IP address, because its WebAuthn RP ID must be a domain; `doctor` rejects that unsupported configuration before startup. See the [WebAuthn RP ID rules](https://www.w3.org/TR/webauthn-3/#relying-party-identifier). For isolated deployments, preload images and use an operator-provided trusted TLS certificate instead of public certificate issuance.
 
 ## Configuration
 
@@ -27,7 +27,7 @@ Caddy obtains a certificate and the override sets the gateway's public URL to th
 | `SHELL_PUBLIC_URL` | `http://localhost:18765`; exact origin, HTTPS outside localhost. SSO uses it as the callback base when edge routing is off. |
 | `SHELL_AUTH_MODE` | `local`; legacy external settings select `supabase` for compatibility; `sso` (alias `oidc`) selects generic OIDC. |
 | `SHELL_LISTEN` | `127.0.0.1:18765`; constrain exposure with host/firewall or Compose bind address. |
-| `SHELL_TTYD_URL` | `http://127.0.0.1:7681`; private HTTP(S) URL without embedded credentials or query. |
+| `SHELL_TTYD_URL` | Required unless `SHELL_TTYD_TARGETS` is set; private HTTP(S) URL without embedded credentials or query. Compose supplies its terminal service URL. |
 | `SHELL_TTYD_TARGETS` | Optional `local=http://terminal:7681,build=https://terminal.example.com`; first entry default. |
 | `SHELL_DATA_DIR` | `$XDG_CONFIG_HOME/shell-gate` or `~/.config/shell-gate`; Compose uses `/data`. |
 | `SHELL_DATABASE_URL` | `workspace.db` in data directory; optional PostgreSQL DSN. |
@@ -77,10 +77,28 @@ Multi-edge operation needs shared PostgreSQL, secure shared-domain session cooki
 
 PostgreSQL: provision an operator-owned database with schema creation privileges, then supply `SHELL_DATABASE_URL`. Use verified TLS across hosts. Existing multi-edge operation requires external authentication, shared PostgreSQL, a cookie domain and configured edge hosts; local ceremonies deliberately reject multi-edge routing. A separate migration import transfers tabs/presets only and never copies local credentials or signing keys.
 
+## Two-factor authentication
+
+Each user can open **Security** (mobile: **More → Account security**) and configure an authenticator. TOTP uses six digits, SHA-1 and a 30-second period, compatible with standard authenticator apps. Setup requires a code before activation. Ten one-use recovery codes are shown only when created; copy or download them into private storage. The setup key and QR are generated locally, never sent to a QR service. Changes require a sign-in within five minutes; sign in again when prompted. Turning 2FA off or creating a new recovery set also requires a current authenticator/recovery code. New recovery codes invalidate the old set.
+
+After activation, password, passkey, SSO and external-token sign-ins all stop at the second step. The pending sign-in expires after five minutes and cannot open terminals or APIs. A successful time step cannot be reused; wait for the next authenticator code if you just used one. Five failed proofs lock account verification for five minutes across instances. Check the server and phone clocks when valid codes are rejected. Password recovery preserves 2FA. Factor changes invalidate other cookies on their next request/handshake; existing terminal connections continue until disconnected.
+
+If the authenticator is lost, choose **Use a recovery code** at sign-in. If both the authenticator and recovery codes are lost, the operator must verify the account owner through a trusted channel, then run with the gateway's usual environment and database settings:
+
+```sh
+shell-gate totp-reset --email you@example.com --dry-run --json
+shell-gate totp-reset --email you@example.com --json
+# Compose: docker compose exec gate shell-gate totp-reset --email you@example.com
+```
+
+This audited local command removes only that account's factor and pending sign-ins, invalidates its earlier cookies, and does not recover passwords. The user can sign in with their primary credential and enroll again. There is no browser reset bypass. A missing account factor returns an error; the dry run validates arguments/configuration without writing.
+
+Back up `totp.key` with the database. It is a private, persistent 32-byte encryption key in `SHELL_DATA_DIR`; no manual configuration is needed on a single instance. Initial generation derives from the gateway signing key, then persists independently so later SSO-secret rotation retains enrolled factors. Cluster nodes must share the established key as well as PostgreSQL and session settings; copy that private file before adding a node after credentials have changed. Startup checks existing ciphertext and refuses a mismatched key. Losing both the matching key and its backup makes enrolled seeds unreadable; restore the key rather than delete/regenerate it. Account-bound AES-GCM protects stored seeds; recovery codes are hashed. A compromised running gateway or a database plus its encryption key can still expose factors.
+
 ## Backups and upgrades
 
-Stop the gateway before a consistent SQLite backup; copy the complete gateway data volume, including `workspace.db` and `session.key`, plus the terminal home volume. Keep backups private. Do not delete volumes during an upgrade. PostgreSQL deployments use `pg_dump` in addition to the signing-key/terminal backup. Losing the session key signs everyone out; losing the database loses password hashes, registered passkeys and workspace metadata.
+Stop the gateway before a consistent SQLite backup; copy the complete gateway data volume, including `workspace.db`, `session.key` and `totp.key`, plus the terminal home volume. Keep backups private. Do not delete volumes during an upgrade. PostgreSQL deployments use `pg_dump` in addition to the signing-key/terminal backup. Losing the session key signs everyone out; losing the database loses password hashes, registered passkeys and workspace metadata.
 
-For source/Compose updates, choose the release tag, back up, and run `docker compose up -d --build`. For binary updates, run the installer with the desired `SHELL_GATE_VERSION=v0.1.2`, then restart the service. Schema migrations run at startup; restore a backup for rollback after an incompatible migration. Review release notes before upgrading. Validate `/healthz`, password login (and passkeys when used), a real terminal command and saved tabs after every deployment.
+For source/Compose updates, choose the release tag, back up, and run `docker compose up -d --build`. For binary updates, run the installer with the desired `SHELL_GATE_VERSION=v0.3.0`, then restart the service. Schema migrations run at startup; restore a backup for rollback after an incompatible migration. Review release notes before upgrading. Validate `/healthz`, password login (and passkeys/2FA when used), a real terminal command and saved tabs after every deployment.
 
 `docker compose down` keeps volumes. `docker compose down -v` deletes account data and terminal files; use it only for disposable test stacks. Application account separation is not an OS sandbox.

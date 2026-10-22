@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -166,6 +167,9 @@ func ConfigFromEnv() (Config, error) {
 			u, err := parsePublicURL(cfg.PublicURL)
 			if err != nil {
 				return Config{}, err
+			}
+			if cfg.AuthMode == "local" && net.ParseIP(u.Hostname()) != nil {
+				return Config{}, fmt.Errorf("local authentication requires a domain in SHELL_PUBLIC_URL; use localhost for development")
 			}
 			if u.Scheme == "http" {
 				cfg.CookieSecure = false

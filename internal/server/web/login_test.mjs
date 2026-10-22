@@ -9,12 +9,12 @@ const settle=()=>new Promise(setImmediate);
 
 // Exercise the actual page script with controllable network and lifecycle events.
 // This checks state transitions; browser layout and screenshots remain separate.
-function page(fetch,search='') {
+function page(fetch,search='',pending=false) {
  const elements=new Map();
  for (const match of html.matchAll(/<([a-z][a-z0-9]*)\b([^>]*\bid="([^"]+)"[^>]*)>/g)) {
   const [,tag,attrs,id]=match;
   elements.set(id,{hidden:/\bhidden\b/.test(attrs),disabled:/\bdisabled\b/.test(attrs),textContent:'',events:{},attrs:{},
-   classList:{add(){}},addEventListener(name,fn){this.events[name]=fn;},setAttribute(name,value){this.attrs[name]=value;},removeAttribute(name){delete this.attrs[name];},
+   focus(){},classList:{add(){}},addEventListener(name,fn){this.events[name]=fn;},setAttribute(name,value){this.attrs[name]=value;},removeAttribute(name){delete this.attrs[name];},
    tag});
  }
  const lifecycle={};
@@ -22,8 +22,8 @@ function page(fetch,search='') {
  const history=[];
  const sandbox={document:{getElementById:id=>elements.get(id),querySelector:()=>({classList:{add(){}}}),querySelectorAll:()=>[...elements.values()].filter(e=>e.tag==='button')},
   window:{isSecureContext:true,PublicKeyCredential:class {},addEventListener:(name,fn)=>{lifecycle[name]=fn;}},
-  location:{search,pathname:'/login',assign:url=>navigation.push(url)},history:{replaceState:(_s,_t,url)=>history.push(url)},
-  fetch,URL,URLSearchParams,AbortSignal,Uint8Array,console};
+  location:{search,pathname:'/login',assign:url=>navigation.push(url),replace:url=>navigation.push(url)},history:{replaceState:(_s,_t,url)=>history.push(url)},
+  fetch:(path,options)=>path==='/api/totp/pending' ? Promise.resolve({ok:true,json:async()=>({required:pending})}) : fetch(path,options),URL,URLSearchParams,AbortSignal,Uint8Array,console};
  vm.runInNewContext(source,sandbox);
  return {elements,lifecycle,navigation,history};
 }
@@ -93,4 +93,36 @@ test('local mode retains password sign-in and account setup',async()=>{
  assert.equal(p.elements.get('provider').hidden,true);
  assert.ok(p.elements.get('passwordLogin').events.submit);
  assert.ok(p.elements.get('register').events.submit);
+});
+
+
+test('pending 2FA hides all primary routes and accepts a recovery code',async()=>{
+ let submitted;
+ const p=page(async(path,options)=>{
+  if(path==='/api/config')return {ok:true,json:async()=>({authMode:'local'})};
+  submitted={path,body:JSON.parse(options.body)};
+  return {ok:true,json:async()=>({status:'ok'})};
+ },'?step=totp',true);
+ await settle();
+ assert.equal(p.elements.get('primaryAuth').hidden,true);
+ assert.equal(p.elements.get('totpAuth').hidden,false);
+ assert.deepEqual(p.navigation,[]);
+ p.elements.get('useRecovery').events.click();
+ assert.equal(p.elements.get('totpLabel').textContent,'Recovery code');
+ const input=p.elements.get('totpCode');
+ input.value='test recovery code';
+ await p.elements.get('totpLogin').events.submit({preventDefault(){}});
+ assert.deepEqual(submitted,{path:'/api/totp/verify',body:{code:'test recovery code'}});
+ assert.equal(input.value,'');
+ assert.deepEqual(p.navigation,['/']);
+});
+
+test('incorrect second factor stays on verification with an actionable error',async()=>{
+ const p=page(async(path)=>({ok:path==='/api/config',json:async()=>path==='/api/config'?{authMode:'sso'}:{message:'Code already used. Try a new code.'}}),'',true);
+ await settle();
+ p.elements.get('totpCode').value='123456';
+ await p.elements.get('totpLogin').events.submit({preventDefault(){}});
+ assert.match(p.elements.get('totpError').textContent,/Try a new code/);
+ assert.equal(p.elements.get('verifyTOTP').disabled,false);
+ assert.deepEqual(p.navigation,[]);
 });

@@ -75,3 +75,21 @@ func TestStripHostPort(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestLocalConfigRequiresDomainForPasskeys(t *testing.T) {
+	t.Setenv("SHELL_AUTH_MODE", "local")
+	t.Setenv("SHELL_ALLOWED_EMAILS", "user@example.com")
+	t.Setenv("SHELL_TTYD_URL", "http://127.0.0.1:7681")
+	t.Setenv("SHELL_EDGE_HOSTS", "")
+	t.Setenv("SHELL_COOKIE_DOMAIN", "")
+	for _, origin := range []string{"http://127.0.0.1:18765", "https://192.0.2.1", "http://[::1]:18765"} {
+		t.Setenv("SHELL_PUBLIC_URL", origin)
+		if _, err := ConfigFromEnv(); err == nil || !strings.Contains(err.Error(), "localhost") {
+			t.Fatalf("unsupported local IP origin: %s: %v", origin, err)
+		}
+	}
+	t.Setenv("SHELL_PUBLIC_URL", "http://localhost:18765")
+	if _, err := ConfigFromEnv(); err != nil {
+		t.Fatal(err)
+	}
+}

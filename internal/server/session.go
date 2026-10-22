@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	authkit "github.com/x0c/shell-gate/internal/auth"
+	"github.com/x0c/shell-gate/internal/server/store"
 )
 
 type sessionRequest struct {
@@ -46,29 +48,21 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"message": "Account is not allowed"})
 		return
 	}
-	if err := s.store.EnsureDefaults(id.Email); err != nil {
-		log.Printf("种默认预置失败 email=%s: %v", id.Email, err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Could not prepare workspace"})
-		return
-	}
-	// GoTrue access_token 默认约 1h 过期；门禁会话要按 SessionTTL（默认 12h）独立续命，
-	// 不能把短寿命 access_token 直接写进 Cookie，否则 MaxAge 还没到就会被 JWT exp 踢下线。
-	sessionToken, err := s.mintSessionToken(id)
+	mfa, err := s.establishLogin(w, r, id, nil)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "Could not create session"})
+		s.totpError(w, err, "primary")
 		return
 	}
-	http.SetCookie(w, s.sessionCookie(sessionToken, int(s.cfg.SessionTTL.Seconds())))
+	if mfa {
+		writeJSON(w, 200, map[string]any{"status": "mfa_required", "mfaRequired": true})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "email": id.Email})
 }
 
-// mintSessionToken 在通行密钥登录校验通过后，签发门禁自己的会话 JWT。
-func (s *Server) mintSessionToken(id *authkit.Identity) (string, error) {
-	return s.mintSessionTokenWithVersion(id, nil)
-}
-
-// A verified password version must not be replaced by a concurrent recovery.
-func (s *Server) mintSessionTokenWithVersion(id *authkit.Identity, verifiedVersion *string) (string, error) {
+// Verified credential and factor versions must not be upgraded by concurrent recovery.
+func (s *Server) mintSessionWithFactors(id *authkit.Identity, verifiedVersion, factorVersion *string) (string, error) {
 	if id == nil || id.UserID == "" {
 		return "", fmt.Errorf("缺少用户身份")
 	}
@@ -98,12 +92,28 @@ func (s *Server) mintSessionTokenWithVersion(id *authkit.Identity, verifiedVersi
 		}
 		claims["pv"] = version
 	}
+	if s.store != nil {
+		state, err := s.store.TOTPState(email)
+		if err != nil {
+			return "", err
+		}
+		if state.Enabled() && factorVersion == nil {
+			return "", store.ErrTOTPState
+		}
+		if factorVersion != nil && *factorVersion != state.Version {
+			return "", store.ErrTOTPState
+		}
+		claims["mv"] = state.Version
+	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return tok.SignedString(s.sessionSecret)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, s.sessionCookie("", -1))
+	if _, err := r.Cookie(s.cfg.CookieName + "_totp"); err == nil {
+		http.SetCookie(w, s.totpCookie("", -1))
+	}
 	loginURL := "/login"
 	if s.cfg.EdgeRoutingEnabled() {
 		// 边缘上登出后必须回 apex；相对 /login 在边缘会被再 302，但 Cookie 清在边缘域也需要 Domain 对齐。
@@ -134,42 +144,57 @@ func (s *Server) sessionCookie(value string, maxAge int) *http.Cookie {
 }
 
 func (s *Server) requireIdentity(w http.ResponseWriter, r *http.Request) (*authkit.Identity, bool) {
-	id, ok := s.identityFromCookie(r)
-	if !ok {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"message": "Sign-in required"})
+	id, err := s.identityFromCookieErr(r)
+	if errors.Is(err, authkit.ErrInvalidToken) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"code": "signin_required", "message": "Sign-in required"})
+		return nil, false
+	}
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"message": "Authentication is unavailable. Please try again."})
 		return nil, false
 	}
 	return id, true
 }
 
 func (s *Server) identityFromCookie(r *http.Request) (*authkit.Identity, bool) {
+	id, err := s.identityFromCookieErr(r)
+	return id, err == nil
+}
+
+func (s *Server) identityFromCookieErr(r *http.Request) (*authkit.Identity, error) {
 	c, err := r.Cookie(s.cfg.CookieName)
 	if err != nil || c.Value == "" {
-		return nil, false
+		return nil, authkit.ErrInvalidToken
 	}
 	v := s.sessionVerifier
 	if v == nil {
 		v = s.verifier
 	}
 	if v == nil {
-		return nil, false
+		return nil, authkit.ErrInvalidToken
 	}
 	id, err := v.Verify(c.Value)
-	if err != nil {
-		return nil, false
-	}
-	if !s.cfg.emailAllowed(id.Email) {
-		return nil, false
+	if err != nil || !s.cfg.emailAllowed(id.Email) {
+		return nil, authkit.ErrInvalidToken
 	}
 	if s.cfg.AuthMode == "local" && s.store != nil {
 		_, version, err := s.store.PasswordState(id.Email)
 		if err != nil {
-			return nil, false
+			return nil, err
 		}
 		tokenVersion, _ := id.Claims["pv"].(string)
 		if tokenVersion != version {
-			return nil, false
+			return nil, authkit.ErrInvalidToken
 		}
 	}
-	return id, true
+	if s.store != nil {
+		state, err := s.store.TOTPState(id.Email)
+		if err != nil {
+			return nil, err
+		}
+		if identityFactorVersion(id) != state.Version {
+			return nil, authkit.ErrInvalidToken
+		}
+	}
+	return id, nil
 }

@@ -52,8 +52,13 @@ $env:SHELL_ALLOWED_EMAILS='you@example.com'; $env:SHELL_TTYD_URL='http://127.0.0
 
 在另一个终端使用相同配置运行 `shell-gate invite --email you@example.com`。如有需要，把安装器显示的目录加入 PATH。[发行下载](https://github.com/x0c/shell-gate/releases/latest) 包含校验和，以及三个平台的 amd64、arm64 程序。Windows 运行门禁，终端上游使用 Unix 主机或 Compose 容器。
 
+## 两步验证
+
+登录工作台后打开 **Security**（手机为 **More → Account security**），选择 **Set up authenticator**，用认证器扫描二维码或输入密钥，再填写六位动态码完成开启。关闭窗口前保存十个恢复码。每个账号自行决定是否开启，无需全局开关或外部服务。开启后，每种登录方式都需要动态码或未使用的恢复码。请先阅读[恢复与备份说明](docs/DEPLOYMENT.md#two-factor-authentication)。
+
 ## 功能
 
+- 可选账号 TOTP 两步验证：自行配置认证器、一次性恢复码，覆盖所有登录入口。
 - 本地邮箱密码登录、可选通行密钥、一次性邀请和明确的邮箱白名单。
 - 可选外部登录：传统 GoTrue 适配器或通用 OIDC SSO（授权码 + PKCE，走 Discovery/JWKS）。
 - 按账号保存 Tab 和预置命令，刷新或换浏览器登录后恢复。

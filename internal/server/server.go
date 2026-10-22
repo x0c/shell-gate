@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/cipher"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/json"
@@ -32,6 +33,9 @@ var workspaceHTML []byte
 //go:embed web/vendor/external-auth.js
 var externalAuthJS []byte
 
+//go:embed web/security.js
+var securityJS []byte
+
 //go:embed web/enhance.js
 var enhanceJS []byte
 
@@ -61,6 +65,7 @@ type Server struct {
 	passkeys        *localPasskeys
 	passwords       *passwordGuard
 	oidc            *oidcClient
+	totpCipher      cipher.AEAD
 	sessionSecret   []byte
 	sessionIssuer   string
 	sessionAudience string
@@ -235,6 +240,11 @@ func New(cfg Config) (*Server, error) {
 			log.Printf("已从 %s 导入 Tab/预置到共享库", cfg.LegacySQLitePath)
 		}
 	}
+	totpCipher, err := loadTOTPCipher(cfg.DataDir, key, st)
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	st.Defaults = cfg.DefaultPresets
 	tabs, err := newTabStore(st)
 	if err != nil {
@@ -251,6 +261,7 @@ func New(cfg Config) (*Server, error) {
 		passkeys:        passkeys,
 		passwords:       passwords,
 		oidc:            oidc,
+		totpCipher:      totpCipher,
 		store:           st,
 		tabs:            tabs,
 		ready:           true,
@@ -284,6 +295,13 @@ func New(cfg Config) (*Server, error) {
 		mux.HandleFunc("POST /api/passkeys/login/begin", s.handlePasskeyLoginBegin)
 		mux.HandleFunc("POST /api/passkeys/login/finish", s.handlePasskeyLoginFinish)
 	}
+	mux.HandleFunc("GET /api/totp", s.handleTOTPStatus)
+	mux.HandleFunc("POST /api/totp/setup", s.handleTOTPSetup)
+	mux.HandleFunc("POST /api/totp/enable", s.handleTOTPEnable)
+	mux.HandleFunc("POST /api/totp/disable", s.handleTOTPChange)
+	mux.HandleFunc("POST /api/totp/recovery", s.handleTOTPChange)
+	mux.HandleFunc("GET /api/totp/pending", s.handleTOTPPending)
+	mux.HandleFunc("POST /api/totp/verify", s.handleTOTPVerify)
 	mux.HandleFunc("POST /logout", s.handleLogout)
 	mux.HandleFunc("GET /logout", s.handleLogout)
 	mux.HandleFunc("GET /api/presets", s.handleListPresets)
@@ -296,6 +314,10 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("GET /api/netmon", s.handleNetmon)
 	mux.HandleFunc("GET /api/netmon/ping", s.handleNetmonPing)
 	mux.HandleFunc("POST /api/netmon/sample", s.handleNetmonSample)
+	mux.HandleFunc("GET /__shellgate/security.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(securityJS)
+	})
 	mux.HandleFunc("GET /__shellgate/enhance.js", s.handleEnhanceJS)
 	mux.HandleFunc("GET /__shellgate/external-auth.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
@@ -391,8 +413,11 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// 与工作台同口径：禁止嵌进终端 iframe，否则已登录时 302 到 / 会再画一套顶栏。
 	denyFraming(w)
-	if _, ok := s.identityFromCookie(r); ok {
+	if _, err := s.identityFromCookieErr(r); err == nil {
 		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	} else if !errors.Is(err, authkit.ErrInvalidToken) {
+		http.Error(w, "Authentication is unavailable. Please try again.", http.StatusServiceUnavailable)
 		return
 	}
 	// Passkey 只在 apex origin；边缘未登录时跳回登录入口。
@@ -524,9 +549,13 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	id, ok := s.identityFromCookie(r)
-	if !ok {
+	id, err := s.identityFromCookieErr(r)
+	if errors.Is(err, authkit.ErrInvalidToken) {
 		s.redirectToLogin(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Authentication is unavailable. Please try again.", http.StatusServiceUnavailable)
 		return
 	}
 	if strings.HasPrefix(path, "/t/") {

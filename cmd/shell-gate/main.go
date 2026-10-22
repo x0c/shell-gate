@@ -53,9 +53,9 @@ func run(args []string) error {
 		fmt.Println(version)
 		return nil
 	case "help", "--help", "-h":
-		fmt.Println("Usage: shell-gate [serve|version|doctor|invite]\n\nConfiguration: SHELL_PUBLIC_URL, SHELL_ALLOWED_EMAILS, SHELL_TTYD_URL.\nOptional storage: SHELL_DATA_DIR, SHELL_DATABASE_URL.\nInvite: shell-gate invite --email user@example.com [--ttl 1h] [--json]")
+		fmt.Println("Usage: shell-gate [serve|version|doctor|invite|totp-reset]\n\nConfiguration: SHELL_PUBLIC_URL, SHELL_ALLOWED_EMAILS, SHELL_TTYD_URL.\nOptional storage: SHELL_DATA_DIR, SHELL_DATABASE_URL.\nInvite: shell-gate invite --email user@example.com [--ttl 1h] [--json]\nLost authenticator: shell-gate totp-reset --email user@example.com [--dry-run] [--json]")
 		return nil
-	case "serve", "doctor", "invite":
+	case "serve", "doctor", "invite", "totp-reset":
 	default:
 		return fmt.Errorf("unknown command %q; run shell-gate help", command)
 	}
@@ -77,6 +77,39 @@ func run(args []string) error {
 			return json.NewEncoder(os.Stdout).Encode(map[string]any{"ok": true, "data": result})
 		}
 		fmt.Printf("ShellGate %s: configuration valid; %s authentication; %d terminal(s)\n", version, cfg.AuthMode, len(cfg.Machines))
+		return nil
+	}
+	if command == "totp-reset" {
+		flags := flag.NewFlagSet("totp-reset", flag.ContinueOnError)
+		email := flags.String("email", "", "allowed account email")
+		jsonOutput := flags.Bool("json", false, "structured output")
+		dryRun := flags.Bool("dry-run", false, "validate without writing")
+		if err := flags.Parse(args); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 {
+			return fmt.Errorf("unexpected totp-reset arguments")
+		}
+		*email = strings.ToLower(strings.TrimSpace(*email))
+		if _, ok := cfg.AllowedEmails[*email]; !ok {
+			return fmt.Errorf("email must be in SHELL_ALLOWED_EMAILS")
+		}
+		result := map[string]string{"email": *email, "state": "planned"}
+		if !*dryRun {
+			st, err := store.Open(cfg.DatabaseURL)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = st.Close() }()
+			if err := st.ResetTOTP(*email); err != nil {
+				return fmt.Errorf("reset two-factor authentication: %w", err)
+			}
+			result["state"] = "reset"
+		}
+		if *jsonOutput {
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{"ok": true, "data": result})
+		}
+		fmt.Printf("Two-factor reset for %s: %s.\n", *email, result["state"])
 		return nil
 	}
 	if command == "invite" {

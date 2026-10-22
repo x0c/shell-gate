@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.3.0
+
+### English
+
+- Add optional per-account TOTP 2FA with local QR/manual setup, confirmation before activation, ten one-use recovery codes, regeneration and disable controls in Account security.
+- Require the second step across password, passkey, OIDC and external-token sign-ins once enabled. Protect against replay and concurrent reuse with database-backed consumption, lockouts and version-bound sessions. Password recovery preserves 2FA.
+- Encrypt authenticator seeds, audit factor changes and provide a local operator reset command. Document key backup and shared-database operation. Return a temporary service error for authentication-storage outages and reject unsupported local IP origins during configuration checks.
+
+### 简体中文
+
+- 新增用户自行开启的 TOTP 两步验证，支持本地生成二维码和手动密钥、确认动态码后开启、十个一次性恢复码，以及账号安全窗口内的恢复码更新和关闭操作。
+- 开启后，密码、通行密钥、OIDC 和外部令牌登录均需第二步验证。数据库统一防重复使用与并发消费，持久化失败次数，并通过版本校验撤销旧会话；密码恢复保留两步验证。
+- 加密认证器密钥、审计安全变更，提供本地管理员重置命令，补充密钥备份和共享数据库说明。认证存储故障返回服务暂不可用，配置检查提前拒绝本地登录不支持的 IP 访问地址。
+
 ## v0.2.0
 
 ### English

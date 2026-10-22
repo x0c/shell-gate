@@ -16,7 +16,7 @@ jobs:
           go-version-file: go.mod
       - run: go test -race ./...
       - run: go vet ./...
-      - run: node --test internal/server/web/login_test.mjs internal/server/web/enhance_zoom_test.mjs internal/server/web/enhance_query_frame_test.mjs
+      - run: node --test internal/server/web/login_test.mjs internal/server/web/security_test.mjs internal/server/web/enhance_zoom_test.mjs internal/server/web/enhance_query_frame_test.mjs
       - run: python scripts/check-public.py
   security:
     runs-on: ubuntu-latest

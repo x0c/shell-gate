@@ -131,7 +131,7 @@ func (s *Server) handlePasskeyRegisterFinish(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, 409, map[string]string{"message": "Invitation is expired or already used; request a new invitation"})
 		return
 	}
-	s.completeLocalLogin(w, c.user)
+	s.completeLocalLogin(w, r, c.user)
 }
 
 func (s *Server) handlePasskeyLoginBegin(w http.ResponseWriter, r *http.Request) {
@@ -170,24 +170,23 @@ func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request
 		writeJSON(w, 500, map[string]string{"message": "Could not save sign-in"})
 		return
 	}
-	s.completeLocalLogin(w, user)
+	s.completeLocalLogin(w, r, user)
 }
 
-func (s *Server) completeLocalLogin(w http.ResponseWriter, u *store.PasskeyUser) {
-	s.completeLocalLoginWithVersion(w, u, nil)
+func (s *Server) completeLocalLogin(w http.ResponseWriter, r *http.Request, u *store.PasskeyUser) {
+	s.completeLocalLoginWithVersion(w, r, u, nil)
 }
 
-func (s *Server) completeLocalLoginWithVersion(w http.ResponseWriter, u *store.PasskeyUser, version *string) {
+func (s *Server) completeLocalLoginWithVersion(w http.ResponseWriter, r *http.Request, u *store.PasskeyUser, version *string) {
 	id := &authkit.Identity{UserID: base64.RawURLEncoding.EncodeToString(u.ID), Email: u.Email}
-	if err := s.store.EnsureDefaults(id.Email); err != nil {
-		writeJSON(w, 500, map[string]string{"message": "Could not prepare workspace"})
-		return
-	}
-	token, err := s.mintSessionTokenWithVersion(id, version)
+	mfa, err := s.establishLogin(w, r, id, version)
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"message": "Could not create session"})
+		s.totpError(w, err, "primary")
 		return
 	}
-	http.SetCookie(w, s.sessionCookie(token, int(s.cfg.SessionTTL.Seconds())))
+	if mfa {
+		writeJSON(w, 200, map[string]any{"status": "mfa_required", "mfaRequired": true})
+		return
+	}
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }

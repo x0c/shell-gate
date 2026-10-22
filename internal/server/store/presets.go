@@ -173,6 +173,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateAudit(); err != nil {
 		return err
 	}
+	if err := s.migrateTOTP(); err != nil {
+		return err
+	}
 	if err := s.migratePasskeys(); err != nil {
 		return err
 	}

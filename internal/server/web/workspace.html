@@ -617,6 +617,23 @@
       .icon-menu { width: 44px; height: 44px; border: 0; }
       .field input, .field select { font-size: 16px; }
     }
+    .security-dialog { color:var(--fg); max-width:calc(100vw - 32px); }
+    .security-dialog::backdrop { background:rgba(4,6,5,.62); }
+    .security-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:16px; }
+    .security-heading h3 { margin:0; }
+    .security-dialog h4 { margin:0; font-size:14px; font-weight:600; }
+    .security-row { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
+    .security-dialog .hint { line-height:1.6; overflow-wrap:anywhere; }
+    .security-message { color:var(--fg); font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+    .security-message:empty { display:none; }
+    .security-link { display:inline-block; color:var(--accent); margin-bottom:24px; }
+    .security-link[hidden] { display:none; }
+    .security-qr { display:block; max-width:100%; height:auto; margin:0 auto 24px; padding:16px; background:white; image-rendering:pixelated; }
+    .security-key { display:flex; flex-direction:column; align-items:flex-start; gap:12px; margin-bottom:24px; }
+    .security-key code { font:13px/1.6 ui-monospace,Menlo,monospace; overflow-wrap:anywhere; user-select:all; }
+    .security-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; margin-top:16px; }
+    .security-codes { list-style:none; margin:16px 0 24px; padding:0; display:grid; gap:8px; font:clamp(10px,2.7vw,12px)/1.5 ui-monospace,Menlo,monospace; user-select:text; }
+    #securityEnabled .hint { margin:0 0 24px; }
   </style>
 </head>
 <body>
@@ -629,6 +646,7 @@
       <div class="rail" id="rail">
         <button class="btn ghost" id="btnTheme" type="button" tabindex="-1" title="Theme: system, light or dark">System</button>
         <button class="btn ghost" id="btnNet" type="button" tabindex="-1" title="Network diagnostics">Network</button>
+        <button class="btn ghost" id="btnSecurity" type="button" title="Account security">Security</button>
         <button class="btn ghost" id="btnPresets" type="button" tabindex="-1" title="Manage presets">Presets</button>
       </div>
       <button class="icon-menu" id="btnMoreMenu" type="button" tabindex="-1" title="More" aria-label="More" aria-expanded="false">⋯</button>
@@ -642,6 +660,7 @@
     </nav>
     <nav class="menu right" id="moreMenu">
       <div class="menu-title">More</div>
+      <button class="menu-item" id="menuSecurity" type="button">Account security</button>
       <button class="menu-item" type="button" tabindex="-1" data-act="theme">深Light<span class="sub" id="menuThemeSub">System</span></button>
       <button class="menu-item" type="button" tabindex="-1" data-act="net">Network diagnostics<span class="sub">Latency / bandwidth / health</span></button>
       <button class="menu-item" type="button" tabindex="-1" data-act="repair">Repair display<span class="sub">Rebuild display · Ctrl/Cmd+Shift+K</span></button>
@@ -695,7 +714,41 @@
     </div>
   </div>
 
+  <dialog class="dialog security-dialog" id="accountSecurity" aria-labelledby="securityTitle">
+    <header class="security-heading"><h3 id="securityTitle">Account security</h3><button class="btn ghost" id="securityClose" type="button" autofocus>Close</button></header>
+    <p id="securityAccount" class="hint"></p>
+    <p id="securityMessage" class="security-message" role="status" aria-live="polite" aria-atomic="true"></p>
+    <button class="btn ghost" id="securityRetry" type="button" data-security-action hidden>Retry</button>
+    <a id="securitySignIn" class="security-link" href="/logout" hidden>Sign in again</a>
+    <section id="securityStatus" hidden>
+      <div class="security-row"><h4>Two-factor authentication</h4><span id="securityState"></span></div>
+      <button class="btn" id="securityBegin" type="button" data-security-action>Set up authenticator</button>
+      <div id="securityEnabled" hidden>
+        <p id="securityRemaining" class="hint"></p>
+        <div class="field"><label for="securityProof">Authenticator or recovery code</label><input id="securityProof" type="text" autocomplete="one-time-code" maxlength="64" required /></div>
+        <div class="security-actions"><button class="btn ghost" id="securityRegenerate" type="button" data-security-action>New recovery codes</button><button class="btn ghost" id="securityDisable" type="button" data-security-action>Turn off 2FA</button></div>
+      </div>
+    </section>
+    <section id="securitySetup" hidden>
+      <p class="hint">Scan this code with your authenticator app, or enter the setup key.</p>
+      <img id="securityQR" class="security-qr" alt="Authenticator setup QR code" width="240" height="240" />
+      <div class="security-key"><code id="securitySecret"></code><button class="btn ghost" id="securityCopyKey" type="button" data-security-action>Copy key</button></div>
+      <form id="securitySetupForm">
+        <div class="field"><label for="securitySetupCode">Authenticator code</label><input id="securitySetupCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" maxlength="8" required /></div>
+        <div class="security-actions"><button class="btn ghost" id="securityCancelSetup" type="button" data-security-action>Back</button><button class="btn" type="submit" data-security-action>Enable 2FA</button></div>
+      </form>
+    </section>
+    <section id="securityRecovery" hidden>
+      <h4>Save your recovery codes</h4>
+      <p class="hint">Each code works once. Save them somewhere safe; they will not be shown again.</p>
+      <ol id="securityCodes" class="security-codes"></ol>
+      <div class="security-actions"><button class="btn ghost" id="securityCopyCodes" type="button" data-security-action>Copy codes</button><button class="btn ghost" id="securityDownloadCodes" type="button" data-security-action>Download</button><button class="btn" id="securityDone" type="button" data-security-action>Done</button></div>
+    </section>
+  </dialog>
+
   <script type="module">
+    import {initAccountSecurity} from "/__shellgate/security.js";
+    initAccountSecurity({closeMenus:()=>closeMenus()});
     // Terminal iframe 若误加载了本页（空 path → /?rendererType=…），禁止再启一套工作台，
     // 否则会叠出「双层 title bar」。服务端也会拒 iframe，这里是旧缓存页的兜底。
     if (window.top !== window.self) {

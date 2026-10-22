@@ -39,6 +39,10 @@
     label { display:block; }
     #msg { margin-top: 12px; font-size: 13px; line-height: 1.6; color: var(--danger); overflow-wrap: anywhere; }
     #msg:empty { margin: 0; }
+    #totpError { color:var(--danger); font-size:13px; line-height:1.6; overflow-wrap:anywhere; }
+    #totpLogin { margin-top:24px; }
+    .back-link { display:inline-block; color:var(--muted); margin-top:24px; font-size:13px; }
+    .back-link:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
     @media (max-width: 640px) { main { grid-template-columns: 1fr; gap: 0; padding: 32px 0; width: min(360px, 100%); } .identity { margin-bottom: 40px; } body { padding: 24px; } }
   </style>
 </head>
@@ -46,7 +50,7 @@
   <main>
     <div class="identity"><h1 class="brand">shell-gate</h1>
     <p class="sub">Your terminal workspace</p></div>
-    <section class="authentication" aria-label="Sign in">
+    <section class="authentication" id="primaryAuth" aria-label="Sign in">
     <h2 id="signinTitle" class="signin-title" hidden>Sign in</h2>
     <p id="loading" class="meta" role="status">Loading sign-in options…</p>
     <div id="accessNote" class="meta" hidden>Access is limited to invited accounts.</div>
@@ -78,12 +82,62 @@
     <button id="retry" class="secondary" type="button" hidden>Retry</button>
     <noscript>Enable JavaScript to sign in to ShellGate.</noscript>
     </section>
+    <section class="authentication" id="totpAuth" aria-labelledby="totpTitle" hidden>
+      <h2 class="signin-title" id="totpTitle">Two-factor authentication</h2>
+      <form id="totpLogin">
+        <label for="totpCode" id="totpLabel">Authenticator code</label>
+        <input id="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,8}" maxlength="8" required />
+        <button class="primary" type="submit" id="verifyTOTP">Verify</button>
+      </form>
+      <p id="totpError" role="status" aria-live="polite" aria-atomic="true"></p>
+      <button class="secondary" id="useRecovery" type="button">Use a recovery code</button>
+      <a class="back-link" href="/logout">Back to sign in</a>
+    </section>
   </main>
   <script type="module">
     const btn = document.getElementById("btn");
     const msg = document.getElementById("msg");
     const form = document.getElementById("register");
     const show = (text) => { msg.textContent = text || ""; };
+    const primaryAuth = document.getElementById("primaryAuth");
+    const totpAuth = document.getElementById("totpAuth");
+    const totpError = document.getElementById("totpError");
+    const totpInput = document.getElementById("totpCode");
+    const totpVerify = document.getElementById("verifyTOTP");
+    let recoveryMode = false;
+    function showSecondFactor() {
+      primaryAuth.hidden = true;
+      totpAuth.hidden = false;
+      history.replaceState(null, "", "/login?step=totp");
+    }
+    function finishSignIn(result) {
+      if (result.mfaRequired) showSecondFactor();
+      else location.replace("/");
+    }
+    document.getElementById("useRecovery").addEventListener("click", () => {
+      recoveryMode = !recoveryMode;
+      totpInput.value = "";
+      totpError.textContent = "";
+      totpInput.inputMode = recoveryMode ? "text" : "numeric";
+      totpInput.maxLength = recoveryMode ? 64 : 8;
+      if (recoveryMode) totpInput.removeAttribute("pattern");
+      else totpInput.setAttribute("pattern", "[0-9 ]{6,8}");
+      document.getElementById("totpLabel").textContent = recoveryMode ? "Recovery code" : "Authenticator code";
+      document.getElementById("useRecovery").textContent = recoveryMode ? "Use an authenticator code" : "Use a recovery code";
+      totpInput.focus();
+    });
+    document.getElementById("totpLogin").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      totpVerify.disabled = true;
+      totpVerify.textContent = "Verifying…";
+      totpError.textContent = "";
+      try {
+        await post("/api/totp/verify", {code:totpInput.value});
+        totpInput.value = "";
+        location.replace("/");
+      } catch (error) { totpError.textContent = error.message || "Verification failed. Please try again."; }
+      finally { totpVerify.disabled = false; totpVerify.textContent = "Verify"; }
+    });
     const decode = (value) => Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
     const encode = (value) => btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
     async function post(path, body = {}) {
@@ -128,6 +182,14 @@
       const res = await fetch("/api/config", {credentials:"same-origin", signal: AbortSignal.timeout(10000)});
       if (!res.ok) throw new Error("Could not load sign-in settings. Please reload.");
       const cfg = await res.json();
+      const pendingResponse = await fetch("/api/totp/pending", {credentials:"same-origin", signal:AbortSignal.timeout(10000)});
+      if (!pendingResponse.ok) throw new Error("Could not check sign-in status.");
+      const pending = await pendingResponse.json();
+      if (pending.required) { loading.hidden = true; showSecondFactor(); return; }
+      if (new URLSearchParams(location.search).get("step") === "totp") {
+        show("The verification request expired. Sign in again.");
+        history.replaceState(null, "", "/login");
+      }
       loading.hidden = true;
       note.hidden = false;
       if (loginError) {
@@ -169,13 +231,15 @@
       } else if (cfg.authMode === "local") {
         document.getElementById("passwordLogin").hidden = false;
         document.getElementById("passwordLogin").addEventListener("submit", (e) => { e.preventDefault(); busy(async () => {
-          await post("/api/password/login", {email:document.getElementById("loginEmail").value,password:document.getElementById("loginPassword").value});
-          location.replace("/");
+          const result = await post("/api/password/login", {email:document.getElementById("loginEmail").value,password:document.getElementById("loginPassword").value});
+          document.getElementById("loginPassword").value = "";
+          finishSignIn(result);
         }); });
         form.addEventListener("submit", (e) => { e.preventDefault(); busy(async () => {
-          await post("/api/password/register", {email:document.getElementById("email").value,token:document.getElementById("invitation").value,password:document.getElementById("newPassword").value});
+          const result = await post("/api/password/register", {email:document.getElementById("email").value,token:document.getElementById("invitation").value,password:document.getElementById("newPassword").value});
           document.getElementById("newPassword").value = "";
-          location.replace("/");
+          document.getElementById("invitation").value = "";
+          finishSignIn(result);
         }); });
         const passkeySupported=window.isSecureContext && !!window.PublicKeyCredential;
         btn.hidden=!passkeySupported;
@@ -191,15 +255,14 @@
         btn.addEventListener("click", () => busy(async () => {
           const options = prepare(await post("/api/passkeys/login/begin"));
           const credential = await navigator.credentials.get(options);
-          await post("/api/passkeys/login/finish", serialize(credential));
-          location.replace("/");
+          finishSignIn(await post("/api/passkeys/login/finish", serialize(credential)));
         }));
         document.getElementById("registerPasskey").addEventListener("click", () => { if(!document.getElementById("email").reportValidity() || !document.getElementById("invitation").reportValidity()) return; busy(async () => {
           const options = prepare(await post("/api/passkeys/register/begin", {email:document.getElementById("email").value, token:document.getElementById("invitation").value}));
           const credential = await navigator.credentials.create(options);
-          await post("/api/passkeys/register/finish", serialize(credential));
+          const result = await post("/api/passkeys/register/finish", serialize(credential));
           document.getElementById("invitation").value = "";
-          location.replace("/");
+          finishSignIn(result);
         }); });
       } else if (cfg.authMode === "supabase") {
         const { createClient } = await import("/__shellgate/external-auth.js");
@@ -209,8 +272,7 @@
           const {data,error} = await supabase.auth.signInWithPasskey();
           if (error) throw error;
           if (!data?.session?.access_token) throw new Error("The provider did not return a session.");
-          await post("/api/session", {access_token:data.session.access_token});
-          location.replace("/");
+          finishSignIn(await post("/api/session", {access_token:data.session.access_token}));
         }));
       } else {
         throw new Error("Sign-in is not configured. Contact your administrator.");

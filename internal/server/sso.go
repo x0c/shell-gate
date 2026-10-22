@@ -480,8 +480,11 @@ func (s *Server) handleSSOLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.cfg.ApexOrigin()+"/api/sso/login", http.StatusFound)
 		return
 	}
-	if _, ok := s.identityFromCookie(r); ok {
+	if _, err := s.identityFromCookieErr(r); err == nil {
 		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	} else if !errors.Is(err, authkit.ErrInvalidToken) {
+		http.Error(w, "Authentication is unavailable. Please try again.", http.StatusServiceUnavailable)
 		return
 	}
 	p, err := s.oidc.discovery(r.Context())
@@ -551,15 +554,14 @@ func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
 		s.ssoFail(w, r, "not_allowed", "allowlist")
 		return
 	}
-	if err := s.store.EnsureDefaults(id.Email); err != nil {
-		s.ssoFail(w, r, "login_failed", "workspace")
-		return
-	}
-	session, err := s.mintSessionToken(id)
+	mfa, err := s.establishLogin(w, r, id, nil)
 	if err != nil {
-		s.ssoFail(w, r, "login_failed", "session")
+		s.ssoFail(w, r, "login_failed", "second_factor")
 		return
 	}
-	http.SetCookie(w, s.sessionCookie(session, int(s.cfg.SessionTTL.Seconds())))
+	if mfa {
+		http.Redirect(w, r, "/login?step=totp", http.StatusFound)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusFound)
 }

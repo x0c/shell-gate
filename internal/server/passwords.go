@@ -102,7 +102,7 @@ func (s *Server) handlePasswordRegister(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, 400, map[string]string{"message": "Could not set up this account. Request a new invitation."})
 		return
 	}
-	s.completeLocalLogin(w, u)
+	s.completeLocalLogin(w, r, u)
 }
 
 func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
@@ -135,5 +135,5 @@ func (s *Server) handlePasswordLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 503, map[string]string{"message": "Sign-in is unavailable. Please try again."})
 		return
 	}
-	s.completeLocalLoginWithVersion(w, u, &version)
+	s.completeLocalLoginWithVersion(w, r, u, &version)
 }

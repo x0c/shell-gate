@@ -83,7 +83,7 @@ func TestPasswordLoginRecoveryAndVersionRace(t *testing.T) {
 	}
 	// Simulate old-password verification finishing after a concurrent recovery.
 	w := httptest.NewRecorder()
-	s.completeLocalLoginWithVersion(w, u, &oldVersion)
+	s.completeLocalLoginWithVersion(w, httptest.NewRequest("POST", "http://localhost:18769/api/password/login", nil), u, &oldVersion)
 	if w.Code != 200 || checkCookie(w.Result().Cookies()[0]) {
 		t.Fatal("concurrent recovery upgraded an old credential session")
 	}
