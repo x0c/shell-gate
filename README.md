@@ -59,7 +59,7 @@ Open **Security** in the workspace (or **More → Account security** on mobile),
 ## Features
 
 - Local email/password login, optional passkeys and one-use invitations; explicit email allowlist.
-- Optional external login: legacy GoTrue adapter or generic OIDC SSO (Authorization Code + PKCE, Discovery/JWKS).
+- Optional external login: legacy GoTrue passkeys with additive generic OIDC SSO (Authorization Code + PKCE, Discovery/JWKS).
 - Optional per-account TOTP 2FA: self-service authenticator setup, one-use recovery codes and protection across every sign-in route.
 - Account-owned tabs and launchers saved across refreshes and browser sign-ins.
 - Multiple ttyd hosts, per-machine tabs and remembered active selection.

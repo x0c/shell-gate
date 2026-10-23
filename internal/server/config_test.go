@@ -93,3 +93,38 @@ func TestLocalConfigRequiresDomainForPasskeys(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAdditionalSSOConfiguration(t *testing.T) {
+	t.Setenv("SHELL_TTYD_URL", "http://127.0.0.1:7681")
+	t.Setenv("SHELL_AUTH_MODE", "supabase")
+	t.Setenv("SHELL_SUPABASE_URL", "https://auth.example.com")
+	t.Setenv("SHELL_SUPABASE_ANON_KEY", "public-anon")
+	t.Setenv("AUTH_JWT_SECRET", testSecret)
+	t.Setenv("AUTH_JWT_ISSUERS", "https://auth.example.com")
+	t.Setenv("SHELL_ALLOWED_EMAILS", "operator@example.com")
+	t.Setenv("SHELL_EDGE_HOSTS", "")
+	t.Setenv("SHELL_PUBLIC_URL", "https://shell.example.com")
+	t.Setenv("SHELL_SSO_ENABLED", "true")
+	t.Setenv("SHELL_SSO_ISSUER", "https://login.example.com")
+	t.Setenv("SHELL_SSO_CLIENT_ID", "gateway")
+	t.Setenv("SHELL_SSO_CLIENT_SECRET", "test-confidential-client")
+	cfg, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AuthMode != "supabase" || !cfg.SSOEnabled || cfg.SupabaseURL != "https://auth.example.com" {
+		t.Fatalf("primary authentication was replaced: %+v", cfg.AuthMode)
+	}
+	t.Setenv("SHELL_SSO_CLIENT_SECRET", "")
+	if _, err := ConfigFromEnv(); err == nil {
+		t.Fatal("enabled incomplete SSO must fail closed")
+	}
+	t.Setenv("SHELL_SSO_ENABLED", "false")
+	if cfg, err := ConfigFromEnv(); err != nil || cfg.SSOEnabled {
+		t.Fatalf("disabled SSO must leave primary provider available: %v", err)
+	}
+	t.Setenv("SHELL_SSO_ENABLED", "invalid")
+	if _, err := ConfigFromEnv(); err == nil {
+		t.Fatal("invalid enabled flag accepted")
+	}
+}

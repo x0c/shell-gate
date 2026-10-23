@@ -25,12 +25,13 @@ import (
 )
 
 const (
-	envSSOIssuer          = "SHELL_SSO_ISSUER"
-	envSSOClientID        = "SHELL_SSO_CLIENT_ID"
-	envSSOClientSecret    = "SHELL_SSO_CLIENT_SECRET"
-	envSSOScopes          = "SHELL_SSO_SCOPES"
-	envSSOEmailClaim      = "SHELL_SSO_EMAIL_CLAIM"
-	envSSOAllowUnverified = "SHELL_SSO_ALLOW_UNVERIFIED_EMAIL"
+	envSSOIssuer           = "SHELL_SSO_ISSUER"
+	envSSOClientID         = "SHELL_SSO_CLIENT_ID"
+	envSSOClientSecret     = "SHELL_SSO_CLIENT_SECRET"
+	envSSOClientAuthMethod = "SHELL_SSO_CLIENT_AUTH_METHOD"
+	envSSOScopes           = "SHELL_SSO_SCOPES"
+	envSSOEmailClaim       = "SHELL_SSO_EMAIL_CLAIM"
+	envSSOAllowUnverified  = "SHELL_SSO_ALLOW_UNVERIFIED_EMAIL"
 )
 
 const (
@@ -44,12 +45,13 @@ const (
 // SSOConfig describes one generic OIDC issuer. All fields come from the
 // process environment; nothing is read from neighboring checkouts.
 type SSOConfig struct {
-	Issuer          string
-	ClientID        string
-	ClientSecret    string
-	Scopes          []string
-	EmailClaim      string
-	AllowUnverified bool
+	Issuer           string
+	ClientID         string
+	ClientSecret     string
+	ClientAuthMethod string
+	Scopes           []string
+	EmailClaim       string
+	AllowUnverified  bool
 }
 
 // parseSSOConfig reads the optional generic SSO policy. Syntax errors fail
@@ -75,17 +77,21 @@ func parseSSOConfig() (SSOConfig, error) {
 		return SSOConfig{}, err
 	}
 	cfg := SSOConfig{
-		Issuer:          issuer,
-		ClientID:        clientID,
-		ClientSecret:    secret,
-		Scopes:          scopes,
-		EmailClaim:      emailClaim,
-		AllowUnverified: allowUnverified,
+		Issuer:           issuer,
+		ClientID:         clientID,
+		ClientSecret:     secret,
+		ClientAuthMethod: strings.TrimSpace(os.Getenv(envSSOClientAuthMethod)),
+		Scopes:           scopes,
+		EmailClaim:       emailClaim,
+		AllowUnverified:  allowUnverified,
 	}
 	return cfg, cfg.validate()
 }
 
 func (c SSOConfig) validate() error {
+	if c.ClientAuthMethod != "" && c.ClientAuthMethod != "client_secret_basic" && c.ClientAuthMethod != "client_secret_post" {
+		return errors.New("SSO client authentication method must be client_secret_basic or client_secret_post")
+	}
 	u, err := url.ParseRequestURI(c.Issuer)
 	if err != nil || !validSSOEndpoint(c.Issuer, true) || u.RawQuery != "" || u.ForceQuery || strings.Contains(c.Issuer, "#") {
 		return errors.New("invalid SSO issuer URL")
@@ -276,6 +282,23 @@ func (c *oidcClient) discovery(ctx context.Context) (*oidc.Provider, error) {
 		}
 		if style == oauth2.AuthStyleAutoDetect {
 			return nil, errors.New("provider requires unsupported client authentication")
+		}
+	}
+	// Discovery advertises server capabilities, not the client's registered method.
+	if method := c.cfg.ClientAuthMethod; method != "" {
+		advertised := method == "client_secret_basic" && len(metadata.AuthMethods) == 0
+		for _, candidate := range metadata.AuthMethods {
+			if candidate == method {
+				advertised = true
+			}
+		}
+		if !advertised {
+			return nil, errors.New("registered client authentication method is not supported by provider")
+		}
+		if method == "client_secret_post" {
+			style = oauth2.AuthStyleInParams
+		} else {
+			style = oauth2.AuthStyleInHeader
 		}
 	}
 	c.provider = p
@@ -472,7 +495,7 @@ func (s *Server) ssoFail(w http.ResponseWriter, r *http.Request, code, stage str
 }
 
 func (s *Server) handleSSOLogin(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.AuthMode != "sso" || s.oidc == nil {
+	if s.oidc == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -502,7 +525,7 @@ func (s *Server) handleSSOLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSSOCallback(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.AuthMode != "sso" || s.oidc == nil {
+	if s.oidc == nil {
 		http.NotFound(w, r)
 		return
 	}

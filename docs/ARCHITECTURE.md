@@ -49,6 +49,12 @@ The callback state cookie is scoped to the callback path and apex host (no share
 
 Inspected reusable implementations: [go-oidc ID-token example](https://github.com/coreos/go-oidc/blob/v3/example/idtoken/app.go), its `oidc/verify.go`, `oidc/jwks.go` and `oidc/oidc.go`, plus Go OAuth2 `internal/token.go`. Reuse discovery, signature/key rotation, PKCE encoding and client authentication. Application-owned checks remain nonce, subject, authorized party, verified email, allowlist, browser state and transport restrictions. Do not copy example error responses containing tokens or provider bodies. Protocol authority: [OIDC Core ID-token validation](https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation) and [UserInfo subject binding](https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse).
 
+## Additive authentication channels
+
+Adding SSO preserves the configured password/passkey provider and its existing credentials, endpoints, session key and visible login entry. `SHELL_SSO_ENABLED=true` adds OIDC alongside `SHELL_AUTH_MODE=local` or `supabase`; it must not switch the primary mode. `SHELL_AUTH_MODE=sso` remains an explicit SSO-only deployment option, never an automatic migration. Both channels normalize the account email, enforce the same allowlist and pass through the same account-owned TOTP challenge. Enabling the optional provider validates its full configuration and fails startup on errors.
+
+OIDC token-endpoint authentication is a client registration property. Discovery lists server capabilities and cannot determine whether a confidential client is registered for Basic or POST. An explicit `SHELL_SSO_CLIENT_AUTH_METHOD` may select `client_secret_basic` or `client_secret_post`; validate that choice against Discovery and fail closed on a mismatch. With no override, retain the existing preference for Basic and POST-only provider compatibility.
+
 ## Self-service TOTP two-factor authentication
 
 Authentication storage failures return a temporary-unavailable response. They must not be presented as an expired session or trigger a new sign-in redirect.

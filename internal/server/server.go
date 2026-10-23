@@ -158,21 +158,8 @@ func New(cfg Config) (*Server, error) {
 	if len(cfg.Machines) == 0 || len(cfg.AllowedEmails) == 0 || cfg.SessionTTL < time.Second || cfg.DataDir == "" {
 		return nil, fmt.Errorf("incomplete server configuration")
 	}
-	var verifier TokenVerifier
-	var passkeys *localPasskeys
-	var passwords *passwordGuard
-	var oidc *oidcClient
-	var key []byte
-	var err error
-	switch cfg.AuthMode {
-	case "supabase":
-		verifier, err = authkit.New(cfg.Auth)
-		if err != nil {
-			return nil, err
-		}
-		derived := sha256.Sum256(append([]byte("shellgate-session:v1:"), cfg.Auth.Secret...))
-		key = derived[:]
-	case "sso":
+	cfg.SSOEnabled = cfg.SSOEnabled || cfg.AuthMode == "sso"
+	if cfg.SSOEnabled {
 		if cfg.SSO.EmailClaim == "" {
 			cfg.SSO.EmailClaim = "email"
 		}
@@ -192,13 +179,28 @@ func New(cfg Config) (*Server, error) {
 				return nil, fmt.Errorf("HTTPS requires secure cookies")
 			}
 		}
+	}
+	var verifier TokenVerifier
+	var passkeys *localPasskeys
+	var passwords *passwordGuard
+	var oidc *oidcClient
+	var key []byte
+	var err error
+	switch cfg.AuthMode {
+	case "supabase":
+		verifier, err = authkit.New(cfg.Auth)
+		if err != nil {
+			return nil, err
+		}
+		derived := sha256.Sum256(append([]byte("shellgate-session:v1:"), cfg.Auth.Secret...))
+		key = derived[:]
+	case "sso":
 		origin := strings.TrimRight(cfg.PublicURL, "/")
 		if cfg.EdgeRoutingEnabled() {
 			origin = cfg.ApexOrigin()
 		}
 		derived := sha256.Sum256([]byte("shellgate-sso:v1:" + cfg.SSO.Issuer + "\x00" + cfg.SSO.ClientID + "\x00" + origin + "\x00" + cfg.SSO.ClientSecret))
 		key = derived[:]
-		oidc = newOIDCClient(cfg.SSO)
 	case "local":
 		origin, err := parsePublicURL(cfg.PublicURL)
 		if err != nil {
@@ -221,6 +223,9 @@ func New(cfg Config) (*Server, error) {
 		}
 	default:
 		return nil, fmt.Errorf("unsupported authentication adapter")
+	}
+	if cfg.SSOEnabled {
+		oidc = newOIDCClient(cfg.SSO)
 	}
 	sessionVerifier, err := authkit.New(authkit.Config{Secret: key, Issuers: []string{"shellgate-session"}, Audience: "shellgate"})
 	if err != nil {
@@ -283,7 +288,7 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("GET /api/machines", s.handleMachines)
 	mux.HandleFunc("POST /api/machines/{name}/ready", s.handleMachineReady)
 	mux.HandleFunc("POST /api/session", s.handleSession)
-	if s.cfg.AuthMode == "sso" {
+	if s.oidc != nil {
 		mux.HandleFunc("GET /api/sso/login", s.handleSSOLogin)
 		mux.HandleFunc("GET /api/sso/callback", s.handleSSOCallback)
 	}
@@ -433,10 +438,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{
 		"authMode":    s.cfg.AuthMode,
+		"ssoEnabled":  s.oidc != nil,
 		"supabaseUrl": s.cfg.SupabaseURL,
 		"anonKey":     s.cfg.SupabaseAnon,
 	}
-	if s.cfg.AuthMode == "sso" {
+	if s.oidc != nil {
 		out["ssoIssuer"] = s.cfg.SSO.Issuer
 	}
 	if s.cfg.EdgeRoutingEnabled() {

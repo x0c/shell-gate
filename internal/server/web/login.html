@@ -67,6 +67,7 @@
       </svg>
       Sign in with a passkey
     </button>
+    <button id="btnSSO" class="secondary" type="button" hidden disabled>Sign in with SSO</button>
     <p id="provider" class="meta" hidden></p>
     <details id="enroll" hidden><summary>Set up or recover an account</summary>
       <form id="register">
@@ -175,6 +176,25 @@
     const note = document.getElementById("accessNote");
     const loginError = new URLSearchParams(location.search).get("error");
     if (loginError) history.replaceState(null, "", location.pathname);
+    const boundSSOButtons = new WeakSet();
+    function configureSSO(button) {
+      button.hidden = false;
+      if (boundSSOButtons.has(button)) return;
+      boundSSOButtons.add(button);
+      const reset = () => {
+        button.disabled = false;
+        button.textContent = "Sign in with SSO";
+        button.removeAttribute("aria-busy");
+      };
+      window.addEventListener("pageshow", reset);
+      button.addEventListener("click", () => {
+        show("");
+        button.disabled = true;
+        button.textContent = "Connecting…";
+        button.setAttribute("aria-busy", "true");
+        location.assign("/api/sso/login");
+      });
+    }
     async function main() {
       retry.hidden = true;
       loading.hidden = false;
@@ -203,6 +223,10 @@
         };
         show(messages[loginError] || "Sign-in failed. Please try again.");
       }
+      if (cfg.ssoEnabled && cfg.authMode !== "sso" && cfg.authMode !== "oidc") {
+        configureSSO(document.getElementById("btnSSO"));
+        document.getElementById("btnSSO").disabled = false;
+      }
       if (cfg.authMode === "sso" || cfg.authMode === "oidc") {
         document.querySelector(".authentication").classList.add("sso");
         document.getElementById("signinTitle").hidden = false;
@@ -215,19 +239,7 @@
           provider.textContent = new URL(cfg.ssoIssuer).hostname;
           provider.hidden = false;
         }
-        const reset = () => {
-          btn.disabled = false;
-          btn.textContent = "Sign in with SSO";
-          btn.removeAttribute("aria-busy");
-        };
-        window.addEventListener("pageshow", reset);
-        btn.addEventListener("click", () => {
-          show("");
-          btn.disabled = true;
-          btn.textContent = "Connecting…";
-          btn.setAttribute("aria-busy", "true");
-          location.assign("/api/sso/login");
-        });
+        configureSSO(btn);
       } else if (cfg.authMode === "local") {
         document.getElementById("passwordLogin").hidden = false;
         document.getElementById("passwordLogin").addEventListener("submit", (e) => { e.preventDefault(); busy(async () => {

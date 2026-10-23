@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.3
+
+### English
+
+- Add OIDC alongside the existing password/passkey provider with `SHELL_SSO_ENABLED=true`; preserve the original login entry, credentials, token exchange and session key. Keep explicit SSO-only deployments supported.
+- Allow the registered OIDC client to select Basic or POST token-endpoint authentication, and keep Account security's title and Close action visible while scrolling short screens.
+
+### 简体中文
+
+- 通过 `SHELL_SSO_ENABLED=true` 在现有密码或通行密钥登录之外增加 OIDC，保留原登录入口、凭据、令牌交换和会话密钥；继续支持明确配置的仅 SSO 部署。
+- 支持按 OIDC 客户端的实际注册选择 Basic 或 POST 认证；账号安全窗口在较矮屏幕滚动时始终显示标题和关闭按钮。
+
 ## v0.3.2
 
 ### English

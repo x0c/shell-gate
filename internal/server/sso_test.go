@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	authkit "github.com/x0c/shell-gate/internal/auth"
 	"github.com/x0c/shell-gate/internal/server/store"
 )
 
@@ -113,7 +114,7 @@ func (m *mockIdP) sign(email, nonce string, extra map[string]any) string {
 	return raw
 }
 
-func newSSOTestServer(t *testing.T, idp *mockIdP, allow []string) *Server {
+func newSSOTestServer(t *testing.T, idp *mockIdP, allow []string, primary ...string) *Server {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "test.db"))
@@ -143,6 +144,11 @@ func newSSOTestServer(t *testing.T, idp *mockIdP, allow []string) *Server {
 			Scopes:       []string{"openid", "email", "profile"},
 			EmailClaim:   "email",
 		},
+	}
+	if len(primary) > 0 {
+		cfg.AuthMode = primary[0]
+		cfg.SSOEnabled = true
+		cfg.Auth = authkit.Config{Secret: []byte(testSecret), Issuers: []string{"https://auth.example.com"}, Audience: "authenticated"}
 	}
 	s, err := New(cfg)
 	if err != nil {
@@ -832,4 +838,103 @@ func startSSOBinary(t *testing.T, binary string, cfg Config) string {
 	}
 	t.Fatal("release binary did not become healthy")
 	return ""
+}
+
+func TestSSORegisteredClientAuthenticationMethod(t *testing.T) {
+	idp := newMockIdP(t)
+	defer idp.server.Close()
+	s := newSSOTestServer(t, idp, []string{"operator@example.com"})
+	s.oidc.cfg.ClientAuthMethod = "client_secret_post"
+	idp.metadata = map[string]any{"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"}}
+	idp.override = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path != "/token" {
+			return false
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		if r.Header.Get("Authorization") != "" || r.Form.Get("client_secret") != s.cfg.SSO.ClientSecret {
+			t.Error("client registration method was ignored")
+		}
+		writeJSON(w, 200, map[string]string{"id_token": idp.sign("operator@example.com", "n", nil), "access_token": "mock-access", "token_type": "Bearer"})
+		return true
+	}
+	if w := runSSOCallback(t, s); w.Header().Get("Location") != "/" {
+		t.Fatal("registered POST client rejected", w.Header().Get("Location"))
+	}
+	s.oidc.provider = nil
+	idp.metadata = map[string]any{"token_endpoint_auth_methods_supported": []string{"client_secret_basic"}}
+	if _, err := s.oidc.discovery(t.Context()); err == nil {
+		t.Fatal("unadvertised client method accepted")
+	}
+	cfg := s.cfg.SSO
+	cfg.ClientAuthMethod = "none"
+	if err := cfg.validate(); err == nil {
+		t.Fatal("unsupported client method accepted")
+	}
+}
+
+// Adding OIDC must preserve the primary provider's routes and existing cookies.
+func TestSSOAdditionalChannelPreservesPrimary(t *testing.T) {
+	for _, mode := range []string{"local", "supabase"} {
+		t.Run(mode, func(t *testing.T) {
+			idp := newMockIdP(t)
+			defer idp.server.Close()
+			s := newSSOTestServer(t, idp, []string{"operator@example.com"}, mode)
+			cfg := s.cfg
+			cfg.SSOEnabled = false
+			cfg.DatabaseURL = filepath.Join(t.TempDir(), "baseline.db")
+			baseline, err := New(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = baseline.Shutdown() }()
+			token, err := baseline.mintSessionWithFactors(&authkit.Identity{UserID: "existing-user", Email: "operator@example.com"}, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.sessionVerifier.Verify(token); err != nil {
+				t.Fatalf("adding SSO invalidated existing primary cookie: %v", err)
+			}
+			config := httptest.NewRecorder()
+			s.httpSrv.Handler.ServeHTTP(config, httptest.NewRequest("GET", "http://localhost:18765/api/config", nil))
+			var options map[string]any
+			if err := json.Unmarshal(config.Body.Bytes(), &options); err != nil {
+				t.Fatal(err)
+			}
+			if options["authMode"] != mode || options["ssoEnabled"] != true {
+				t.Fatalf("lost primary channel: %v", options)
+			}
+			login := httptest.NewRecorder()
+			s.httpSrv.Handler.ServeHTTP(login, httptest.NewRequest("GET", "http://localhost:18765/api/sso/login", nil))
+			if login.Code != http.StatusFound || !strings.HasPrefix(login.Header().Get("Location"), idp.issuer()) {
+				t.Fatalf("OIDC route unavailable: %d", login.Code)
+			}
+			idp.idToken = idp.sign("operator@example.com", "n", nil)
+			callback := runSSOCallback(t, s)
+			if callback.Code != http.StatusFound || callback.Header().Get("Location") != "/" {
+				t.Fatalf("OIDC callback unavailable: %d", callback.Code)
+			}
+			if mode == "local" {
+				req := httptest.NewRequest("POST", "http://localhost:18765/api/passkeys/login/begin", strings.NewReader("{}"))
+				req.Header.Set("Origin", "http://localhost:18765")
+				req.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				s.httpSrv.Handler.ServeHTTP(w, req)
+				if w.Code != http.StatusOK {
+					t.Fatalf("original passkey route unavailable: %d %s", w.Code, w.Body.String())
+				}
+			} else {
+				body, _ := json.Marshal(sessionRequest{AccessToken: signToken(t, "operator@example.com")})
+				req := httptest.NewRequest("POST", "http://localhost:18765/api/session", bytes.NewReader(body))
+				req.Header.Set("Origin", "http://localhost:18765")
+				req.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				s.httpSrv.Handler.ServeHTTP(w, req)
+				if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"status":"ok"`) {
+					t.Fatalf("original external passkey exchange unavailable: %d %s", w.Code, w.Body.String())
+				}
+			}
+		})
+	}
 }

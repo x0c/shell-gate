@@ -60,7 +60,7 @@ $env:SHELL_ALLOWED_EMAILS='you@example.com'; $env:SHELL_TTYD_URL='http://127.0.0
 
 - 可选账号 TOTP 两步验证：自行配置认证器、一次性恢复码，覆盖所有登录入口。
 - 本地邮箱密码登录、可选通行密钥、一次性邀请和明确的邮箱白名单。
-- 可选外部登录：传统 GoTrue 适配器或通用 OIDC SSO（授权码 + PKCE，走 Discovery/JWKS）。
+- 可选外部登录：保留传统 GoTrue 通行密钥入口，并可同时接入通用 OIDC SSO（授权码 + PKCE，走 Discovery/JWKS）。
 - 按账号保存 Tab 和预置命令，刷新或换浏览器登录后恢复。
 - 多台 ttyd 主机、按机器切换 Tab、记住上次激活的 Tab。
 - 紧凑的桌面顶栏、触摸滚动和手机终端快捷键。

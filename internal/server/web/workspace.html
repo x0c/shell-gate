@@ -620,7 +620,7 @@
     .security-dialog { color:var(--fg); max-width:calc(100vw - 32px); }
     @media (max-width:600px) { .security-dialog .btn { min-height:44px; padding:8px 12px; } }
     .security-dialog::backdrop { background:rgba(4,6,5,.62); }
-    .security-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:16px; }
+    .security-heading { position:sticky; top:-24px; z-index:1; background:var(--panel); padding:16px 24px; margin:-24px -24px 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
     .security-heading h3 { margin:0; }
     .security-dialog h4 { margin:0; font-size:14px; font-weight:600; }
     .security-row { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
