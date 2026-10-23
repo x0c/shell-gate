@@ -30,6 +30,7 @@ test('security requires explicit open and clears seeds and recovery codes on clo
  elements.get('btnSecurity').events.click();await settle();
  assert.equal(elements.get('accountSecurity').open,true);
  assert.equal(elements.get('securityStatus').hidden,false);
+ assert.equal(elements.get('securityMessage').textContent,'');
  elements.get('securityBegin').events.click();await settle();
  assert.equal(elements.get('securitySecret').textContent,'TEST-SEED');
  assert.equal(elements.get('securitySetup').hidden,false);
@@ -61,6 +62,7 @@ test('status failure offers retry and recent-auth error offers sign in',async()=
  assert.equal(elements.get('securityRetry').hidden,false);
  elements.get('securityRetry').events.click();await settle();
  assert.equal(elements.get('securityStatus').hidden,false);
+ assert.equal(elements.get('securityMessage').textContent,'');
  globalThis.fetch=async()=>({ok:false,json:async()=>({code:'reauth_required',message:'Sign in again'})});
  elements.get('securityBegin').events.click();await settle();
  assert.equal(elements.get('securitySignIn').hidden,false);

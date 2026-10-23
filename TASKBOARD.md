@@ -4,3 +4,4 @@
 
 | 任务 | 状态 | 影响范围 | 开始 | 最近更新 | 备注 |
 |---|---|---|---|---|---|
+| Finish live OIDC integration and browser acceptance | 进行中 | live gateways/auth client, UI validation and bounded fixes/docs | 2026-10-23 | 2026-10-23 | Primary model owns UI; Playwright explicitly authorized |

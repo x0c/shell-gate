@@ -53,6 +53,8 @@ External GoTrue: set `SHELL_AUTH_MODE=supabase`, `SHELL_SUPABASE_URL`, `SHELL_SU
 
 ### Generic OIDC SSO
 
+When switching an existing deployment, register its confidential client and exact apex callback before restarting gateways. Preserve the email allowlist, database and persistent TOTP key on every node; switching authentication must retain account-owned tabs, presets and enrolled factors. Keep a private configuration/database backup, validate both edges and a real authorized login, and verify terminal input/output after the switch.
+
 This optional adapter supports a confidential OIDC web client with Discovery, asymmetric signed ID tokens, S256 PKCE and `client_secret_basic` or `client_secret_post` authentication. It does not implement SAML, public clients or `private_key_jwt`. Local password/passkey authentication remains the default.
 
 1. Register a web client at your provider. Set its exact redirect URI to `https://shell.example.com/api/sso/callback`; for local development use `http://localhost:18765/api/sso/callback`. In multi-edge mode register the apex origin callback, never an individual edge.

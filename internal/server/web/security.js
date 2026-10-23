@@ -55,6 +55,7 @@ export function initAccountSecurity({closeMenus}) {
     const state = await request('/api/totp');
     if (!active()) return;
     clearSecrets();
+    message.textContent = '';
     element('securityAccount').textContent = state.email;
     element('securityState').textContent = state.enabled ? 'On' : 'Off';
     element('securityBegin').hidden = state.enabled;

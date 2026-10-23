@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.2
+
+### English
+
+- Clear the account-security loading announcement after status arrives and give narrow-screen security actions 44-pixel hit targets.
+- Verify authenticator enrollment, recovery-code copy/download, keyboard dismissal/focus restoration, invalid-code feedback and recovery login in a real browser at desktop, 390px and 320px widths. Document existing-deployment OIDC rollout safeguards.
+
+### 简体中文
+
+- 修复账号安全状态加载完成后仍保留加载提示的问题，手机端安全操作按钮提供 44 像素点击高度。
+- 在真实浏览器验证认证器配置、恢复码复制与下载、键盘关闭与焦点恢复、动态码错误提示和恢复码登录，并检查桌面、390 与 320 像素宽度；补充现有部署切换 OIDC 的保护步骤。
+
 ## v0.3.1
 
 ### English
