@@ -29,6 +29,8 @@ Container listeners bind the service network inside the container; host exposure
 
 ## Release readiness
 
+The public README and GitHub About lead with one workflow: open a terminal in a phone or laptop browser, switch between configured servers, and reopen the account's saved tabs. Show real terminal interactions on non-sensitive demo hosts. Follow ttyd's short outcome-led opening and PocketShell's mobile demo placement; keep the complete-stack and existing-ttyd install paths separate. Name coding agents only as examples of terminal workloads after verifying their real TUIs; do not imply built-in agent orchestration, notifications, or automatic tmux session management. Keep the distinction between restored tabs and live shell processes visible next to the demo. For a running task, document manual `tmux new-session -A -s work` on the same host and OS account; the host must have tmux installed and keep its session running.
+
 Record verification coverage and any unresolved limits here before release. Do not claim an operating-system sandbox or transparent process continuation for plain shell tabs.
 
 A browser-cancelled proxy request is normal lifecycle activity: do not log it as an upstream outage or increment proxy-failure metrics. Release binaries omit private VCS metadata; release provenance identifies the reviewed public source tree.
@@ -45,6 +47,7 @@ Password implementation references: [OWASP password storage](https://cheatsheets
 
 ## Verified release coverage
 
+- v0.4.0 storefront demo: the public installer ran on macOS arm64. In Chrome, a desktop browser enrolled a local account and opened tabs on two loopback ttyd instances. A fresh mobile-sized touch browser signed in, reopened both saved tabs, switched between the hosts and received real terminal command output from both. Manually attaching to the same tmux session from a fresh browser recovered shell state and a running job. The demo uses synthetic repositories; it does not verify physical phone input or agent-specific TUIs.
 - Go 1.26.9: complete race suite, vet and static analysis passed with zero compiler/lint warnings. SQLite and PostgreSQL 18 both passed credential, invitation, recovery and audit-rollback contracts.
 - An isolated Linux amd64 Compose stack ran both services as non-root, with no published ttyd port. Actual Chrome flows passed password enrollment, incorrect-password rejection, recovery/revocation, optional passkey enrollment/sign-in, account isolation, saved tabs, restart persistence, cross-origin rejection, one-shot launchers and terminal input/output. Browser requests stayed on the gateway origin; no external identity/CDN was used.
 - Desktop and mobile-size screenshots were inspected. Mobile layout and shortcut geometry were checked in Chrome emulation; this does not verify a physical iOS/Android keyboard. Native Mac window capture lacked screen-recording permission, so visual acceptance used browser-rendered captures.

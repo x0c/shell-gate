@@ -2,13 +2,25 @@
 
 # shell-gate
 
-在浏览器里打开服务器终端，用邮箱和密码登录，也可以选择通行密钥，并回到已保存的 Tab。ShellGate 是可以自己部署的 Go 终端门禁，支持 ttyd、本地认证、SQLite、多台终端主机和紧凑的手机工作台。
+**在手机或电脑浏览器里切换多台服务器的终端。** ShellGate 是可以自己部署的网页终端。用密码或通行密钥登录，选一台运行 ttyd 的主机就能开终端；换设备登录后，也能找回已保存的标签页。
 
-![ShellGate 终端工作台](docs/assets/workspace.jpg)
+[安装](#安装) · [看手机演示](#用手机切换服务器) · [部署说明](docs/DEPLOYMENT.md)
+
+![ShellGate 桌面工作台：可切换 build-box 和 lab-node，终端显示 build-box 的 Git 日志](docs/assets/workspace.webp)
+
+## 用手机切换服务器
+
+打开菜单，就能从 `build-box` 切换到 `lab-node`。每台服务器有各自的标签页，手机底部的快捷键栏可直接点按 Ctrl、Esc、Tab 和方向键。
+
+![手机尺寸演示：打开主机菜单，切到 lab-node 查看 Git 日志，再切回 build-box](docs/assets/switch-servers.gif)
+
+**断线后能恢复什么？** ShellGate 会保存标签页所属的服务器和启动命令。普通终端断线重连后会启动新的 shell 进程。如果有任务需要继续运行，请在终端主机上安装 [tmux](https://github.com/tmux/tmux/wiki/Getting-Started)，用 `tmux new-session -A -s work` 打开会话，再启动任务。只要会话还在，在同一台服务器上用同一个系统账号运行这条命令，就能接回。ShellGate 不会自动创建或管理 tmux 会话。
 
 ## 安装
 
-**Docker Compose 完整部署**：不需要外部认证服务、数据库服务或浏览器 CDN。
+### 用 Docker Compose 快速试用
+
+如果还没运行 ttyd，用这条路径。需要 Git 和 Docker Compose，会在本机一起构建并启动网关和不对外开放的终端服务。
 
 ```sh
 git clone https://github.com/x0c/shell-gate.git && cd shell-gate
@@ -16,68 +28,62 @@ cp .env.example .env  # 把 SHELL_ALLOWED_EMAILS 改成自己的邮箱。
 docker compose up -d --build
 ```
 
-生成第一份邀请：
+用同一个邮箱生成邀请码：
 
 ```sh
 docker compose exec gate shell-gate invite --email you@example.com
 ```
 
-打开 **http://localhost:18765/login**，选择 **Set up or recover an account**，输入邮箱、邀请码和至少 12 个字符的密码。之后点击 **Sign in** 登录；通行密钥是可选方式。部署到其他服务器时，配置 [HTTPS](docs/DEPLOYMENT.md#https)，也可以用 SSH 隧道连接到 localhost。通行密钥绑定域名，请保持访问地址稳定。
+打开 **http://localhost:18765/login**，选择 **Set up or recover an account**，输入邮箱、邀请码和至少 12 个字符的密码。以后选择 **Sign in** 登录。要用手机访问远程部署，请先配置 [HTTPS](docs/DEPLOYMENT.md#https)，再用该域名访问。通行密钥可按需设置，并绑定到注册时使用的域名。
 
-**独立门禁程序**：连接已有的私有 ttyd 上游，无须 Docker。
+### 连接已有的 ttyd 主机
 
-macOS / Linux：
+可直接安装网关，无须 Docker。请先准备[不对外开放的 ttyd 服务](docs/DEPLOYMENT.md#direct-binary-and-service)。
+
+**macOS / Linux**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/x0c/shell-gate/main/scripts/install.sh | bash
 ```
 
-Windows（PowerShell）：
+```sh
+SHELL_ALLOWED_EMAILS=you@example.com SHELL_TTYD_URL=http://127.0.0.1:7681 shell-gate serve
+```
+
+**Windows（PowerShell）**
 
 ```powershell
 irm https://raw.githubusercontent.com/x0c/shell-gate/main/scripts/install.ps1 | iex
 ```
 
-macOS / Linux 首次运行：
-
-```sh
-SHELL_ALLOWED_EMAILS=you@example.com SHELL_TTYD_URL=http://127.0.0.1:7681 shell-gate serve
-```
-
-Windows 首次运行：
-
 ```powershell
 $env:SHELL_ALLOWED_EMAILS='you@example.com'; $env:SHELL_TTYD_URL='http://127.0.0.1:7681'; shell-gate serve
 ```
 
-在另一个终端使用相同配置运行 `shell-gate invite --email you@example.com`。如有需要，把安装器显示的目录加入 PATH。[发行下载](https://github.com/x0c/shell-gate/releases/latest) 包含校验和，以及三个平台的 amd64、arm64 程序。Windows 运行门禁，终端上游使用 Unix 主机或 Compose 容器。
+在另一个终端使用相同的环境变量运行 `shell-gate invite --email you@example.com`，然后打开上面的本机登录页面。如果找不到 `shell-gate` 命令，把安装器显示的目录加入 `PATH`。[发行下载](https://github.com/x0c/shell-gate/releases/latest)提供 macOS、Linux 和 Windows 的 amd64、arm64 程序及校验和。Windows 上的网关连接 Unix 主机或容器中的终端服务。
 
-## 两步验证
+### 添加更多服务器
 
-登录工作台后打开 **Security**（手机为 **More → Account security**），选择 **Set up authenticator**，用认证器扫描二维码或输入密钥，再填写六位动态码完成开启。关闭窗口前保存十个恢复码。每个账号自行决定是否开启，无需全局开关或外部服务。开启后，每种登录方式都需要动态码或未使用的恢复码。请先阅读[恢复与备份说明](docs/DEPLOYMENT.md#two-factor-authentication)。
+在 [`SHELL_TTYD_TARGETS`](docs/DEPLOYMENT.md#configuration) 中配置每台主机的名称和私有 ttyd 地址。配置两台或更多主机后，工作台会显示服务器切换入口。
 
-## 功能
+## 账号与部署
 
-- 可选账号 TOTP 两步验证：自行配置认证器、一次性恢复码，覆盖所有登录入口。
-- 本地邮箱密码登录、可选通行密钥、一次性邀请和明确的邮箱白名单。
-- 可选外部登录：保留传统 GoTrue 通行密钥入口，并可同时接入通用 OIDC SSO（授权码 + PKCE，走 Discovery/JWKS）。
-- 按账号保存 Tab 和预置命令，刷新或换浏览器登录后恢复。
-- 多台 ttyd 主机、按机器切换 Tab、记住上次激活的 Tab。
-- 紧凑的桌面顶栏、触摸滚动和手机终端快捷键。
-- 运行时切换深浅色、剪贴板桥接和终端截图。
-- 可选 PostgreSQL、外部认证（GoTrue 或通用 OIDC SSO）及唤醒、保活接口。
-- 浏览器资源随程序提供；诊断日志默认关闭。
+- **本地登录。** 密码、可选的通行密钥和[两步验证码](docs/DEPLOYMENT.md#two-factor-authentication)无需外部身份服务。管理员用邮箱白名单和一次性邀请码控制谁能创建账号。
+- **保留工作台。** 默认使用 SQLite 按账号保存标签页和预置命令。浏览器里还可以切换主题、使用剪贴板或截取终端画面。
+- **部署在自己的机器上。** 默认部署不依赖付费服务或浏览器 CDN。首次下载和签发公共证书需要联网。[部署说明](docs/DEPLOYMENT.md)涵盖 HTTPS、备份、PostgreSQL 以及可选的 OIDC 或 GoTrue 登录，[架构说明](docs/ARCHITECTURE.md)提供集成细节。
 
-默认部署运行时不需要远程服务。首次下载需要网络，公共 HTTPS 证书签发也需要网络。隔离环境可预先导入镜像，并自行提供浏览器信任的证书。ShellGate 没有付费服务依赖；服务器、域名及自选服务可能产生费用。
-
-## 部署和配置
-
-[部署说明](docs/DEPLOYMENT.md) 包含 HTTPS、多主机、独立服务、备份和升级；[配置示例](.env.example) 提供初始配置；[架构说明](docs/ARCHITECTURE.md) 描述适配器边界和扩展要求。源码构建需要 Go 1.26.11+，运行 `go build ./cmd/shell-gate`。
-
-**信任边界**：被邀请的人拥有目标终端账号的系统权限。门禁隔离 Tab 和预置数据，不隔离共享系统账号中的文件和进程。所有获准账号都能访问配置中的每台机器。ttyd 必须保持私有；需要用户隔离时，分别部署门禁与 ttyd，使用不同的白名单、域名和系统账号、容器或主机。详见[安全说明](SECURITY.md)。
-
-普通 shell Tab 在重连后恢复启动定义，不保证恢复原来的 shell 进程。自带会话恢复的程序可以自然接回。
+**权限边界：** 所有获准账号都能打开每台已配置主机的终端。共用终端主机上的同一个系统账号时，用户共享该账号的文件、进程和权限。请勿对外开放 ttyd。需要隔离用户时，请分别部署网关和 ttyd，并使用不同的白名单、域名，以及独立的系统账号或主机。详见[安全说明](SECURITY.md)。
 
 ## 贡献
 
-请阅读[贡献说明](CONTRIBUTING.md)。本地验证和发行打包不依赖 CI。源码使用 [MIT 许可证](LICENSE)，随程序和容器使用的依赖保留[各自许可证](THIRD_PARTY_NOTICES.md)。
+[贡献说明](CONTRIBUTING.md)包含本地检查和发行打包流程。源码构建需要 Go 1.26.11 或更新版本，运行 `go build ./cmd/shell-gate`。ShellGate 使用 [MIT 许可证](LICENSE)，依赖保留[各自的许可证](THIRD_PARTY_NOTICES.md)。
+
+## 相关工具
+
+| 项目 | 用途 |
+| --- | --- |
+| [Corral](https://github.com/corral-dev/corral) | 并排运行和管理本地编程助手会话。 |
+| [subswap](https://github.com/x0c/subswap) | 查看编程助手的剩余额度，不退出登录就能换账号。 |
+| [agentsync](https://github.com/x0c/agentsync) | 在不同编程助手之间同步技能和配置。 |
+| [agent-doc-skills](https://github.com/x0c/agent-doc-skills) | 建立和维护方便查找的项目知识库。 |
+| [sesskit](https://github.com/x0c/sesskit) | 解析和导出本地编程助手的会话记录。 |
