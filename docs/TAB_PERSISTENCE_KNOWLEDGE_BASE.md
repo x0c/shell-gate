@@ -290,7 +290,7 @@ SELECT email, applied_at FROM preset_defaults_applied ORDER BY email;
 | 预置程序管理（backlog） | Tab 创建消费 `presets.command/machine`；`EnsureDefaults` 种一次、`machine` 列迁移 | 预置域 backlog，`internal/server/store/presets.go` |
 | 双边缘部署与共享存储（backlog） | 共享 Postgres 的 `shell_gate` 库双网关共用、建库 SQL 与导入语义 | 双边缘域 backlog，`deploy/database/init-shell-gate-db.sql`、`Store.ImportFromSQLite` |
 | 浏览器工作台前端 | 顶栏只渲染当前机器 Tab 条、机器 pill、窄屏收纳、空态文案 | 工作台前端知识库，`internal/server/web/workspace.html` |
-| Mac 上游与睡眠租约 | 创建/关闭 Tab 时的租约取得与释放、8 小时自毁、刷新不释放 | Mac 上游知识库，`deploy/mac/`、`TestMacTabLeaseSurvivesDisconnectUntilExplicitClose` |
+| Mac 上游与睡眠租约 | Per-tab acquire/release, connected renewal and up to eight hours of disconnected protection | Mac 上游知识库，`deploy/mac/`、`TestMacTabLeaseSurvivesDisconnectUntilExplicitClose` |
 
 ## §9 待确认与误判排除
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/x0c/shell-gate/internal/server"
 	"github.com/x0c/shell-gate/internal/server/store"
+	"github.com/x0c/shell-gate/internal/tunnel"
 )
 
 var version = "dev"
@@ -53,8 +54,10 @@ func run(args []string) error {
 		fmt.Println(version)
 		return nil
 	case "help", "--help", "-h":
-		fmt.Println("Usage: shell-gate [serve|version|doctor|invite|totp-reset]\n\nConfiguration: SHELL_PUBLIC_URL, SHELL_ALLOWED_EMAILS, SHELL_TTYD_URL.\nOptional storage: SHELL_DATA_DIR, SHELL_DATABASE_URL.\nInvite: shell-gate invite --email user@example.com [--ttl 1h] [--json]\nLost authenticator: shell-gate totp-reset --email user@example.com [--dry-run] [--json]")
+		fmt.Println("Usage: shell-gate [serve|agent|version|doctor|invite|totp-reset]\n\nConfiguration: SHELL_PUBLIC_URL, SHELL_ALLOWED_EMAILS, SHELL_TTYD_URL.\nOptional storage: SHELL_DATA_DIR, SHELL_DATABASE_URL.\nReverse tunnel agent: shell-gate agent --name <agent> --gateways <url,...> --token-file <path> --ttyd <host:port>\nInvite: shell-gate invite --email user@example.com [--ttl 1h] [--json]\nLost authenticator: shell-gate totp-reset --email user@example.com [--dry-run] [--json]")
 		return nil
+	case "agent":
+		return runAgent(args)
 	case "serve", "doctor", "invite", "totp-reset":
 	default:
 		return fmt.Errorf("unknown command %q; run shell-gate help", command)
@@ -183,4 +186,64 @@ func run(args []string) error {
 	case <-ctx.Done():
 		return nil
 	}
+}
+
+func runAgent(args []string) error {
+	flags := flag.NewFlagSet("agent", flag.ContinueOnError)
+	name := flags.String("name", os.Getenv("SHELL_AGENT_NAME"), "agent name")
+	gatewaysRaw := flags.String("gateways", os.Getenv("SHELL_AGENT_GATEWAYS"), "comma-separated gateway base URLs")
+	tokenFile := flags.String("token-file", os.Getenv("SHELL_AGENT_TOKEN_FILE"), "path to file containing agent bearer token")
+	ttydAddr := flags.String("ttyd", os.Getenv("SHELL_AGENT_TTYD"), "local ttyd address (host:port or http://host:port)")
+	presenceAddr := flags.String("presence", os.Getenv("SHELL_AGENT_PRESENCE"), "optional local presence address (host:port or http://host:port)")
+	wakeRaw := flags.String("wake-hooks", os.Getenv("SHELL_AGENT_WAKE_HOOKS"), "optional comma-separated machine=/abs/wake-script")
+	leaseRaw := flags.String("lease-hooks", os.Getenv("SHELL_AGENT_LEASE_HOOKS"), "optional comma-separated machine=/abs/lease-script")
+	allowEnvProxy := flags.Bool("allow-env-proxy", false, "use HTTP(S)_PROXY environment variables when dialing gateways")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected agent arguments")
+	}
+	token := strings.TrimSpace(os.Getenv("SHELL_AGENT_TOKEN"))
+	if strings.TrimSpace(*tokenFile) != "" {
+		raw, err := os.ReadFile(strings.TrimSpace(*tokenFile))
+		if err != nil {
+			return fmt.Errorf("read token file: %w", err)
+		}
+		token = strings.TrimSpace(string(raw))
+	}
+	var gateways []string
+	for _, part := range strings.Split(*gatewaysRaw, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			gateways = append(gateways, part)
+		}
+	}
+	wakeHooks, err := tunnel.ParseMapping(*wakeRaw)
+	if err != nil {
+		return fmt.Errorf("wake-hooks: %w", err)
+	}
+	leaseHooks, err := tunnel.ParseMapping(*leaseRaw)
+	if err != nil {
+		return fmt.Errorf("lease-hooks: %w", err)
+	}
+	agent, err := tunnel.NewAgent(tunnel.AgentConfig{
+		Name:          *name,
+		Gateways:      gateways,
+		Token:         token,
+		TTYDAddr:      *ttydAddr,
+		PresenceAddr:  *presenceAddr,
+		WakeHooks:     wakeHooks,
+		LeaseHooks:    leaseHooks,
+		AllowEnvProxy: *allowEnvProxy,
+	})
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := agent.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }

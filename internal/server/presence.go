@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 )
@@ -25,12 +26,24 @@ type harborPresenceClient struct {
 }
 
 func newHarborPresenceClient(url, token string) *harborPresenceClient {
+	return newHarborPresenceClientWithDial(url, token, nil)
+}
+
+func newHarborPresenceClientWithDial(url, token string, dial func(context.Context, string, string) (net.Conn, error)) *harborPresenceClient {
+	tr := &http.Transport{
+		Proxy:                 nil,
+		TLSHandshakeTimeout:   presenceCheckTimeout,
+		ResponseHeaderTimeout: presenceCheckTimeout,
+	}
+	if dial != nil {
+		tr.DialContext = dial
+	}
 	return &harborPresenceClient{
 		url:   url,
 		token: token,
 		client: &http.Client{
 			Timeout:   presenceCheckTimeout,
-			Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: presenceCheckTimeout, ResponseHeaderTimeout: presenceCheckTimeout},
+			Transport: tr,
 			// 禁止跟随重定向：presence 基址必须是我们配置的那一个，不能被拐到别处。
 			CheckRedirect: func(*http.Request, []*http.Request) error {
 				return http.ErrUseLastResponse

@@ -118,10 +118,11 @@ graph TD
 
 上游地址校验由 `parseUpstreamURL()`（`internal/server/config.go`）执行：
 
-- 只允许 `http`/`https`（大小写不敏感，统一规范化为小写）；
-- 必须有 Host；
+- 只允许 `http`、`https` 或 `agent`（`agent://<name>`，大小写不敏感，统一规范化为小写）；
+- `http`/`https` 必须有 Host；`agent` 的 Host 必须为合法机器/代理名且在 `SHELL_AGENT_TOKENS` 中注册；
 - 禁止 URL 内嵌用户名密码（userinfo）；
 - 禁止携带 query 与 fragment。
+- 当机器名同时出现在 `SHELL_AGENT_TOKENS` 且仍配了 `http(s)` 目标时，门禁优先经已连接的 `shell-gate agent` WSS 反向隧道拨号，agent 离线时自动回退直连地址；见 [原生反向隧道设计](design/2026-11-24-native-agent-tunnel.md)。
 
 上游是门禁信任边界内的 ttyd，协议与凭证形态写死，避免 `file`/`unix` 等 scheme 或 userinfo
 被误配进反代。来源口径见 `docs/troubleshooting/2026-09-05-gate-policy-hardening.md` 结论第 2 条。

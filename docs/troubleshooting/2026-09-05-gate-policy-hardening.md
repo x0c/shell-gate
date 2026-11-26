@@ -1,6 +1,6 @@
 # 2026-09-05 shell-gate 门禁放行/配置/鉴权加固
 
-> 何时该读：改反代 Transport、上游 URL 解析、会话 TTL / 探测间隔环境变量，或评审「放行谁、配错会不会静默变宽」前。
+Scope: reverse-proxy transport, upstream URL validation, session TTL and probe interval configuration, including authorization and fail-fast behavior.
 
 ## 结论（已修）
 

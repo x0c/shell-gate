@@ -36,6 +36,8 @@ type upstreamWaker struct {
 	probeInterval  time.Duration
 	run            func(context.Context, string) error
 	probe          func(context.Context, string) error
+	customRun      func(context.Context) error
+	customProbe    func(context.Context) error
 	mu             sync.Mutex // 单测未注入 locker 时的进程内锁
 }
 
@@ -59,16 +61,30 @@ func newUpstreamWakerLocked(command, target, machine string, locker wakeLocker, 
 	return w
 }
 
+func (w *upstreamWaker) checkTarget(ctx context.Context) error {
+	if w.customProbe != nil {
+		return w.customProbe(ctx)
+	}
+	return w.probe(ctx, w.target)
+}
+
+func (w *upstreamWaker) executeWake(ctx context.Context) error {
+	if w.customRun != nil {
+		return w.customRun(ctx)
+	}
+	return w.run(ctx, w.command)
+}
+
 // ensureReady 只在明确的用户连接动作中调用。后台健康探测与隐藏 Tab 重连不得调用，
 // 否则 Mac 会在用户不用它时也被反复叫醒。跨门禁用库锁合并唤醒，避免重复发包。
 func (w *upstreamWaker) ensureReady(ctx context.Context) (bool, error) {
-	if err := w.probe(ctx, w.target); err == nil {
+	if err := w.checkTarget(ctx); err == nil {
 		return false, nil
 	}
 
 	var woke bool
 	run := func() error {
-		if err := w.probe(ctx, w.target); err == nil {
+		if err := w.checkTarget(ctx); err == nil {
 			woke = false
 			return nil
 		}
@@ -76,7 +92,7 @@ func (w *upstreamWaker) ensureReady(ctx context.Context) (bool, error) {
 			return err
 		}
 		commandCtx, cancelCommand := context.WithTimeout(ctx, w.commandTimeout)
-		err := w.run(commandCtx, w.command)
+		err := w.executeWake(commandCtx)
 		cancelCommand()
 		if err != nil {
 			return fmt.Errorf("执行唤醒命令: %w", err)
@@ -86,7 +102,7 @@ func (w *upstreamWaker) ensureReady(ctx context.Context) (bool, error) {
 		ticker := time.NewTicker(w.probeInterval)
 		defer ticker.Stop()
 		for {
-			if err := w.probe(readyCtx, w.target); err == nil {
+			if err := w.checkTarget(readyCtx); err == nil {
 				woke = true
 				return nil
 			}

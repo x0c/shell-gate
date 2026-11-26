@@ -19,11 +19,14 @@ type proxyUserKey struct{}
 
 type proxyCmdKey struct{}
 
+type proxyUpgradeKey struct{}
+
 func newTTYDProxy(target *url.URL, mon *netMonitor) *httputil.ReverseProxy {
+	proxyTarget := upstreamHTTPTarget(target)
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(req *httputil.ProxyRequest) {
-			req.SetURL(target)
-			req.Out.Host = target.Host
+			req.SetURL(proxyTarget)
+			req.Out.Host = proxyTarget.Host
 			// 先剥掉客户端可能伪造的身份头，再写入门禁已校验的身份。
 			req.Out.Header.Del(authHeaderName)
 			req.Out.Header.Del("X-WEBAUTH-USER")
@@ -56,7 +59,17 @@ func newTTYDProxy(target *url.URL, mon *netMonitor) *httputil.ReverseProxy {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: time.Second,
 	}
-	proxy.ModifyResponse = injectEnhanceScript
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		if err := injectEnhanceScript(resp); err != nil {
+			return err
+		}
+		if resp.StatusCode == http.StatusSwitchingProtocols && strings.EqualFold(resp.Header.Get("Upgrade"), "websocket") {
+			if start, ok := resp.Request.Context().Value(proxyUpgradeKey{}).(func()); ok {
+				start()
+			}
+		}
+		return nil
+	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		if errors.Is(err, context.Canceled) {
 			return

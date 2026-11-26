@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>__HOME__</string>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin</string>
+		<key>SHELL_AGENT_NAME</key>
+		<string>mac</string>
+		<key>SHELL_AGENT_GATEWAYS</key>
+		<string>https://shell.example.com</string>
+		<key>SHELL_AGENT_TOKEN_FILE</key>
+		<string>__HOME__/.config/shell-gate/agent.token</string>
+		<key>SHELL_AGENT_TTYD</key>
+		<string>127.0.0.1:7681</string>
+		<key>SHELL_AGENT_LEASE_HOOKS</key>
+		<string>mac=__HOME__/.local/bin/shell-gate-session-lease</string>
+	</dict>
+	<key>KeepAlive</key>
+	<true/>
+	<key>Label</key>
+	<string>io.shellgate.agent</string>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__HOME__/.local/bin/shell-gate</string>
+		<string>agent</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>StandardErrorPath</key>
+	<string>__DATA__/logs/agent.err.log</string>
+	<key>StandardOutPath</key>
+	<string>__DATA__/logs/agent.out.log</string>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>WorkingDirectory</key>
+	<string>__HOME__</string>
+</dict>
+</plist>

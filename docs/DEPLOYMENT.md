@@ -28,8 +28,11 @@ Caddy obtains a certificate and the override sets the gateway's public URL to th
 | `SHELL_AUTH_MODE` | Primary login: `local`; legacy settings select `supabase`; explicit `sso` (alias `oidc`) offers only OIDC. |
 | `SHELL_SSO_ENABLED` | `false`; `true` adds OIDC alongside the primary password/passkey provider. |
 | `SHELL_LISTEN` | `127.0.0.1:18765`; constrain exposure with host/firewall or Compose bind address. |
-| `SHELL_TTYD_URL` | Required unless `SHELL_TTYD_TARGETS` is set; private HTTP(S) URL without embedded credentials or query. Compose supplies its terminal service URL. |
-| `SHELL_TTYD_TARGETS` | Optional `local=http://terminal:7681,build=https://terminal.example.com`; first entry default. |
+| `SHELL_TTYD_URL` | Required unless `SHELL_TTYD_TARGETS` is set; private HTTP(S) or `agent://<name>` URL without embedded credentials or query. Compose supplies its terminal service URL. |
+| `SHELL_TTYD_TARGETS` | Optional `local=http://terminal:7681,mac=agent://mac`; first entry default. Machines matching a configured `SHELL_AGENT_TOKENS` key automatically prefer the connected agent tunnel and fall back to their HTTP(S) URL when offline. |
+| `SHELL_AGENT_TOKENS` | Optional `agent=<32+ char token>` map enabling `GET /api/agent/tunnel` Bearer authentication. |
+| `SHELL_WAKE_AGENT_ROUTES` / `SHELL_LEASE_AGENT_ROUTES` | Optional `machine=agent` maps routing wake and sleep-lease actions through a connected agent before falling back to local `SHELL_WAKE_COMMANDS` / `SHELL_SESSION_LEASE_COMMANDS`. |
+| `SHELL_WAKE_HOME_PRESENCE_AGENT` | Optional agent name used to dial `presence` over its reverse tunnel before falling back to direct `SHELL_WAKE_HOME_PRESENCE_URL`. |
 | `SHELL_DATA_DIR` | `$XDG_CONFIG_HOME/shell-gate` or `~/.config/shell-gate`; Compose uses `/data`. |
 | `SHELL_DATABASE_URL` | `workspace.db` in data directory; optional PostgreSQL DSN. |
 | `SHELL_SESSION_TTL` | `12h`; positive duration, same expiry for token and cookie. |
@@ -74,6 +77,13 @@ This optional adapter supports a confidential OIDC web client with Discovery, as
 `SHELL_SSO_ENABLED=true` adds SSO alongside the existing password/passkey provider. Keep its configuration and credentials unchanged. To deliberately offer only SSO, set `SHELL_AUTH_MODE=sso` (alias `oidc`); this also enables SSO. Copy the issuer exactly from Discovery, including a trailing slash if present. Optional `SHELL_SSO_SCOPES` defaults to `openid email profile`; explicit scopes are preserved with `openid` added when needed. `SHELL_SSO_EMAIL_CLAIM` defaults to `email` and is honored exactly, with no automatic username/UPN aliases. The claim may come from a verified ID token or subject-matched UserInfo. By default that same claim source must contain boolean `email_verified=true`; missing, false or string values fail closed. If an enterprise provider verifies addresses administratively but omits this claim, configure its mapper first or explicitly set `SHELL_SSO_ALLOW_UNVERIFIED_EMAIL=true` only when the provider prevents users from choosing an allowlisted address.
 
 Set `SHELL_SSO_CLIENT_AUTH_METHOD=client_secret_basic` or `client_secret_post` to match the registered confidential client when the provider advertises both. Without an override the gateway prefers Basic, or POST when it is the only supported method. Discovery lists capabilities rather than the method chosen for a particular client; an explicit unsupported choice fails closed.
+
+When switching an existing additive SSO channel to a new issuer, update only
+its issuer and client settings. Leave `SHELL_AUTH_MODE`, its local credentials
+or `SHELL_SUPABASE_URL`/`AUTH_JWT_*`, and the cookie settings unchanged. For a
+shared multi-edge session, register the apex callback and deploy the same SSO
+configuration on both edges; verify the public edge-to-apex login redirect,
+the apex authorization redirect, and the unchanged primary mode on each edge.
 
 Syntax errors fail startup. Provider reachability is checked when login starts, so a short provider outage does not prevent an existing gateway session from working. Tokens must pass signature, exact issuer, audience, subject, issued-at, expiry, authorized-party and nonce checks. Invalid tokens never fall back to UserInfo. Provider redirects, unsafe endpoints, HTTPS downgrade and oversized responses are rejected. Provider and token response contents are not logged.
 

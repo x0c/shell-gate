@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.4.0
+
+### English
+
+- Add the native HTTPS/WSS reverse tunnel (`shell-gate agent`) for NAT terminal upstreams, wake hooks, lease hooks and presence checks over TCP 443, with wall-clock jump recovery on wake and automatic fallback to direct upstream URLs.
+- Renew Mac sleep leases while terminal tabs remain connected and document issuer-only OIDC cutover safeguards for shared multi-edge deployments.
+- Rewrite the login, edge-selection and terminal workspace frontend using React 19, TypeScript, Vite, Tailwind CSS v4 and `@x0c/ui` Flat Monochrome components while preserving canvas rendering, live theme broadcast, per-machine tabs, non-modal network diagnostics, self-service TOTP and mobile keyboard ownership.
+- Require Go 1.26.11+ for the `net/http` `MaxBytesReader` race fix (`GO-2026-6859`).
+
+### 简体中文
+
+- 新增原生 HTTPS/WSS 反向隧道（`shell-gate agent`），支持通过 TCP 443 接入 NAT 后的终端上游、唤醒与租约钩子及在家检测，支持唤醒时钟跳变快速重连及离线回退直连上游。
+- 为保持连接的终端 Tab 续期 Mac 防睡租约，并补充多边缘共享部署切换仅 SSO 发行方的保护说明。
+- 基于 React 19、TypeScript、Vite、Tailwind CSS v4 与 `@x0c/ui` Flat Monochrome 组件重写登录、边缘选路与终端工作台前端，完整保留 canvas 渲染、无刷新主题广播、按机器 Tab 恢复、非模态网络诊断、自助 TOTP 与手机键盘保焦契约。
+- 构建要求升级至 Go 1.26.11+，包含 `net/http` `MaxBytesReader` 竞态安全修复（`GO-2026-6859`）。
+
 ## v0.3.3
 
 ### English

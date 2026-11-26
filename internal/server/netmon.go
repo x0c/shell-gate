@@ -251,9 +251,11 @@ type netmonClientRecord struct {
 // ---------- 监控器本体 ----------
 
 type netMonitor struct {
-	target   *url.URL
-	interval time.Duration
-	start    time.Time
+	target        *url.URL
+	displayTarget string
+	interval      time.Duration
+	start         time.Time
+	baseDial      func(context.Context, string, string) (net.Conn, error)
 	// probeUser 是探测请求带的身份头取值。上游 ttyd 用 -H X-Webauth-User 做鉴权，
 	// 不带就只回 407——那样量到的是「被拒绝」的耗时，走不到真实处理路径。带上白名单里的
 	// 邮箱，探测才和真实开终端走同一条上游代码路径（探首页不会 fork shell，只有 /ws 才会）。
@@ -296,24 +298,35 @@ type netMonitor struct {
 }
 
 func newNetMonitor(target *url.URL, interval time.Duration, probeUser string) *netMonitor {
+	return newNetMonitorWithDial(target, interval, probeUser, nil, "")
+}
+
+func newNetMonitorWithDial(target *url.URL, interval time.Duration, probeUser string, baseDial func(context.Context, string, string) (net.Conn, error), displayTarget string) *netMonitor {
 	m := &netMonitor{
-		target:      target,
-		interval:    interval,
-		probeUser:   probeUser,
-		start:       time.Now(),
-		dialRTT:     newRTTWindow(rttWindowSize),
-		probeTCP:    newRTTWindow(rttWindowSize),
-		probeTTFB:   newRTTWindow(rttWindowSize),
-		clients:     make(map[string]*netmonClientRecord),
-		connections: make(map[*countingConn]struct{}),
+		target:        target,
+		displayTarget: displayTarget,
+		interval:      interval,
+		probeUser:     probeUser,
+		baseDial:      baseDial,
+		start:         time.Now(),
+		dialRTT:       newRTTWindow(rttWindowSize),
+		probeTCP:      newRTTWindow(rttWindowSize),
+		probeTTFB:     newRTTWindow(rttWindowSize),
+		clients:       make(map[string]*netmonClientRecord),
+		connections:   make(map[*countingConn]struct{}),
+	}
+	probeDial := (&net.Dialer{Timeout: netmonProbeTimeout}).DialContext
+	if baseDial != nil {
+		probeDial = baseDial
 	}
 	// 探针必须每次重新建连才能量到握手耗时，所以关掉连接复用；它也不能复用反代的
 	// 计数拨号器，否则探测流量会混进业务吞吐统计里。
 	m.probeClient = &http.Client{
 		Timeout: netmonProbeTimeout,
 		Transport: &http.Transport{
+			Proxy:             nil,
 			DisableKeepAlives: true,
-			DialContext:       (&net.Dialer{Timeout: netmonProbeTimeout}).DialContext,
+			DialContext:       probeDial,
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
@@ -324,7 +337,11 @@ func newNetMonitor(target *url.URL, interval time.Duration, probeUser string) *n
 // 并把连接包成计数器，统计经过门禁转发的双向字节。
 func (m *netMonitor) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	started := time.Now()
-	c, err := (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, network, addr)
+	dialFn := m.baseDial
+	if dialFn == nil {
+		dialFn = (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	}
+	c, err := dialFn(ctx, network, addr)
 	if err != nil {
 		m.dialFails.Add(1)
 		return nil, err
@@ -611,8 +628,8 @@ func (m *netMonitor) upstreamSnapshot() netmonUpstream {
 	up10, down10 := m.rates.rate(10 * time.Second)
 	up60, down60 := m.rates.rate(60 * time.Second)
 
-	target := ""
-	if m.target != nil {
+	target := m.displayTarget
+	if target == "" && m.target != nil {
 		target = m.target.Host
 	}
 

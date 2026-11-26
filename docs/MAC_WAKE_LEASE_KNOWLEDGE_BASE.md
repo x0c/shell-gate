@@ -12,7 +12,7 @@ Current standalone requirements are authoritative in [architecture](ARCHITECTURE
 | 2 | 适用机器 | 仅 `mac` 这台上游；linux 默认在线，不走唤醒/租约路径 |
 | 3 | 唤醒触发三件套 | 切到 Mac / 开 Mac shell / 点绑定 Mac 的预置，经中继主机家庭网一次性唤醒并等 ttyd 恢复 |
 | 4 | 在家信号 | presence 服务 `GET /v1/presence` 的 `comfort_home` 字段（示例映射到家庭自动化平台的在家开关）；失败 fail-open |
-| 5 | 租约粒度 | 每个 Mac Tab 一个独立睡眠断言（`caffeinate -is`，8 小时自毁）；与 ttyd WebSocket 解耦 |
+| 5 | 租约粒度 | Per-tab `caffeinate -is`; connected terminals renew, disconnects retain protection for up to eight hours |
 | 6 | 压缩版 ttyd | `shell-gate-ttyd`（ttyd 1.7.7 + lws 4.3.10 + permessage-deflate）；禁 Homebrew 版上线 |
 | 7 | 监听与防火墙面 | ttyd 只绑隧道地址（如 ZeroTier）；pf 只放行已评审的网关出口到 7681；路由器不转发 22/7681 |
 | 8 | 主指南 | `docs/MAC_UPSTREAM_GUIDE.md`（安装/LaunchAgent/pf/接入/排查顺序） |
@@ -50,12 +50,21 @@ Mac 没有常驻在线义务。睡眠是默认态，唤醒是例外，且例外�
 - `(true, nil)`：离线 → 唤醒 → 恢复，前端可继续建 Tab；
 - `err`：唤醒失败或在家被拦，前端展示 `wakeFailureMessage()` 的文案（在家抑制有专用文案，不伪装成"未接电/关机"）。
 
-### 1.4 租约语义（睡眠断言与 Tab 同生共死，但与连接无关）
+### 1.4 Renewable tab leases and disconnect grace
+
+**Renewal correction (2026-10-26):** A connected, authorized Mac terminal must remain protected beyond eight hours. The gateway renews an existing tab lease immediately after a successful ttyd WebSocket upgrade and every 15 minutes while that connection remains established. A disconnect, refresh, background suspension or gateway shutdown stops renewal without releasing the lease; its last successful renewal expires within eight hours. Only explicit tab deletion releases it immediately. Remembered tabs, health probes and failed upgrades do not run a renewal loop or wake the host. Startup retains the existing one-time reacquisition behavior, without periodically renewing the saved tab directory.
+
+Mac hooks serialize acquire, renew and release per tab using the system `lockf -k` utility with a bounded wait. `renew` never recreates a removed lease, so a connection on another edge cannot resurrect a tab deleted during renewal. Fresh assertions are reused; older assertions are replaced at most once per 30 minutes, with the new assertion observed before the old process is stopped. Continue validating PID, process start time and command before killing anything. Existing Application Support data is not migrated; newly installed hooks use the documented XDG location. Persistent lock files preserve a single lock inode for concurrent callers; a process exit releases the kernel lock automatically.
+
+Observed failure: the final `PreventSystemSleep` assertion reached `08:00:00` and timed out at 18:30:56; the same timestamp recorded actual system sleep. The former implementation only acquired on tab creation/startup and never renewed a long-running connection. `DarkWake` transitions alone are not evidence that all terminal work stopped. The separate `Software Sleep` caller PID was not attributed to a particular application.
+
+References inspected: [Apple caffeinate timeout contract](https://github.com/apple-oss-distributions/PowerManagement/blob/main/caffeinate/caffeinate.8), [Go ReverseProxy upgrade implementation](https://github.com/golang/go/blob/go1.26.10/src/net/http/httputil/reverseproxy.go), [Apple lockf lifecycle and concurrency contract](https://github.com/apple-oss-distributions/shell_cmds/blob/main/lockf/lockf.1), and the existing ShellGate lease, proxy and shutdown implementations. Reuse the standard proxy's confirmed-upgrade callback and connection lifetime; do not add a second browser heartbeat or a permanent keep-awake service.
 
 `Server.handleCreateTab()` 在 Tab 落库成功后调 `sessionLeaser.acquire()`；
 `Server.handleDeleteTab()` 在 Tab 删除成功后调 `sessionLeaser.release()`（失败只记日志，不把 Tab 留回工作台，远端靠硬超时兜底）；
 门禁重启后 `Server.reacquireSessionLeases()` 为库里仍在的 Mac Tab 补申请。
-租约与 ttyd WebSocket 完全解耦——浏览器切后台、锁屏、网络暂断、被系统暂停、刷新页面都不释放；
+Lease release is independent of the ttyd WebSocket: backgrounding, locking, temporary network loss, suspension and refresh never release it. Established connections renew it; disconnected clients retain the bounded grace.
+
 只有"用户在工作台内明确关闭 Tab"才释放，浏览器异常退出发不出关闭通知时靠 Mac 侧 8 小时自毁。
 
 ### 1.5 端到端序列
@@ -85,7 +94,7 @@ sequenceDiagram
             U->>G: POST /api/tabs（machine=mac）
             G->>S: sessionLeaser.acquire(tabID)
             S->>M: shell-gate-session-lease acquire（caffeinate -is 8h）
-            Note over G,M: 终端可用；租约与 WebSocket 无关
+            Note over G,M: Connected terminals renew; disconnect preserves grace
             U->>G: 明确关闭 Tab
             G->>S: sessionLeaser.release(tabID)
             S->>M: 杀掉对应 caffeinate，删状态文件
@@ -104,12 +113,12 @@ sequenceDiagram
 并发语义：`upstreamWaker` 内有 `sync.Mutex`（单测未注入 locker 时的进程内串行化）；
 生产走 `Store.WithWakeLock()`——Postgres 用 advisory lock（`wakeLockKey()` 按机器名哈希），SQLite/单测走进程内 `wakeMu`。
 于是双网关实例同时点 Mac 时只发一次魔术包，对应单测 `TestUpstreamWakerCoalescesConcurrentRequests`。
-租约侧无锁：`sessionLeaser.acquire()` / `release()` 按 Tab ID 幂等操作 Mac 侧状态文件，天然可并发。
+Lease hooks use a per-tab native `lockf -k -t 8` lock on the Mac. Acquire, renew and release share this lock across both edges; renew never recreates a released lease. Kernel-owned locks cannot remain held after the holder exits. The persistent lock file is not itself an active lock.
 
 ### 2.5 路径清单（实现别名对照）
 
 - `internal/server/wake.go` —— `upstreamWaker.ensureReady()` / `upstreamWaker.rejectIfAtHome()` / `runWakeCommand()` / `probeTCP()` / `wakeFailureMessage()` / `ErrWakeSuppressedAtHome`
-- `internal/server/lease.go` —— `sessionLeaser.acquire()` / `sessionLeaser.release()` / `sessionLeaser.runWithTimeout()` / `runSessionLeaseCommand()` / `validSessionLeaseID()`
+- `internal/server/lease.go` —— `sessionLeaser.acquire()` / `sessionLeaser.keepAlive()` / `sessionLeaser.shutdown()` / `sessionLeaser.release()` / `sessionLeaser.runWithTimeout()` / `runSessionLeaseCommand()` / `validSessionLeaseID()`
 - `internal/server/presence.go` —— `harborPresenceClient.ComfortHome()` / `newHarborPresenceClient()`（禁代理、禁跟随重定向、3s 超时）
 - `internal/server/config.go` —— `parseWakeHomePresence()` / `Config.suppressWakeWhenHome()` / `attachWakeCommands()` / `attachSessionLeaseCommands()` / `validateWakeCommands()` / `validateSessionLeaseCommands()`
 - `internal/server/tab_handlers.go` —— `Server.handleCreateTab()`（先唤醒再落库再持租约，租约失败回滚 Tab） / `Server.handleDeleteTab()`（先删库再释放，释放失败不回滚）
@@ -126,16 +135,16 @@ sequenceDiagram
 1. `deploy/mac/build-ttyd.sh` —— 自建压缩版 ttyd（ttyd 1.7.7 + lws 4.3.10，显式开 extensions/zlib、静态链 lws），构建后必跑 `check-ttyd-compression.py` 才可安装。
 2. `deploy/mac/install-mac-upstream.sh` —— 一键安装/重装用户级上游（装 `terminal-shell` 与 keepalive、渲染 plist、跑构建、bootstrap LaunchAgent）；防火墙/SSH 变更刻意不在此脚本内。
 3. `deploy/mac/ttyd-keepalive.sh` —— LaunchAgent 托管的保活入口：等隧道地址就绪、端口被占则待命不抢，优先选 `shell-gate-ttyd`，以 `-W -a -m 0 -P 30 -H X-Webauth-User -t rendererType=canvas` 起 ttyd。
-4. `deploy/mac/shell-gate-session-lease` —— 按 Tab 持防睡眠断言的唯一执行者：`acquire <32位hex>` 起 `caffeinate -is -t 28800` 并记 pid+启动时间，`release` 按指纹杀，异常退出靠 8 小时自毁。
+4. `deploy/mac/shell-gate-session-lease` —— 按 Tab 持防睡眠断言的唯一执行者：`acquire <32位hex>` 起 `caffeinate -is -t 28800` 并记 pid+启动时间，`renew` refreshes existing protection, `release` checks the process fingerprint before terminating it; disconnected protection expires within eight hours.
 5. `deploy/mac/terminal-shell`（现用登录脚本；已接替被删除的旧登录脚本） —— ttyd 每连接的登录壳：补齐账号默认 `SHELL`（缺则读 dscl）与 `COLORTERM=truecolor`，无参开登录壳，有参走 `bash -lc` 并兼容旧门禁写死的 `exec bash -lic`。
 6. `deploy/mac/enable-remote-and-pf.sh` —— 管理员一次性动作：校验已评审的 pf 配置并安装锚点（`pmset womp`、拉起 sshd 在新系统上改走系统设置手动开）。
 7. `deploy/mac/harden-upstream-security.sh` —— 管理员显式加固：禁 SSH 密码与 keyboard-interactive、禁 root、跑前必须先验证过密钥登录（`--key-access-verified`）。
 8. `deploy/mac/pf-ttyd-restrict.conf` —— pf 锚点规则模板：只放行网关出口到本机 7681，其余 DROP；SSH 策略刻意不在此模板内。
 9. `deploy/mac/io.shellgate.ttyd.plist` —— LaunchAgent 定义：`KeepAlive` + `RunAtLoad`，且 `ProcessType=Interactive`（2026-09-29 实测结论，否则整棵 ttyd 树被 launchd 降速，见 §6）。
 10. `deploy/mac/check-ttyd-compression.py` —— 构建门禁：在 loopback 起候选 ttyd，要求 101 握手带回 `permessage-deflate`，并做 8 KiB / 1 MiB 压缩粘贴双向字节一致往返。
-11. `deploy/relay/shell-gate-mac-bridge.sh` —— 中继侧受限 SSH 桥（forced-command）：空命令只跑唤醒脚本；`lease acquire|release <32位hex>` 经隧道转发给 Mac 租约脚本，其它一律拒绝，绝不解释成通用 shell。
+11. `deploy/relay/shell-gate-mac-bridge.sh` —— 中继侧受限 SSH 桥（forced-command）：空命令只跑唤醒脚本；`lease acquire|renew|release <32位hex>` 经隧道转发给 Mac 租约脚本，其它一律拒绝，绝不解释成通用 shell。
 12. `deploy/edge/wake-mac-via-relay.sh` —— 各网关实例的 `SHELL_WAKE_COMMANDS` 固定入口：用专用钥匙连中继别名发空命令（唤醒），无参数。
-13. `deploy/edge/lease-mac-via-relay.sh` —— 网关的 `SHELL_SESSION_LEASE_COMMANDS` 固定入口：`acquire|release TAB_ID`，动作与 Tab ID 独立传参（门禁侧 `sessionLeaser.runWithTimeout()` 亦做 32 位小写 hex 校验，双层格式闸）。
+13. `deploy/edge/lease-mac-via-relay.sh` —— 网关的 `SHELL_SESSION_LEASE_COMMANDS` 固定入口：`acquire|renew|release TAB_ID`，动作与 Tab ID 独立传参（门禁侧 `sessionLeaser.runWithTimeout()` 亦做 32 位小写 hex 校验，双层格式闸）。
 14. `deploy/ttyd-keepalive.sh` —— 中继侧用户级 ttyd 兜底（root 单元 `Restart=on-failure` 遇干净 SIGTERM 不重启的双保险，见 §6）；端口被占就地等待不抢，与 root 单元共存。
 
 新接一台上游机器四件套 checklist（照抄 Mac 模式）：ttyd 以 `-H X-Webauth-User` + `-a` 启动并经登录脚本拉 shell；
@@ -148,8 +157,9 @@ systemd/LaunchAgent 托管 + keepalive 兜底；账号登录壳按本机习惯�
 
 说明：门禁侧不为租约建表。唯一持久的是 Tab 目录本身（账号级 Tab 记忆，属于"Tab 服务端记忆"域，不在本库收敛范围）；
 `Server.reacquireSessionLeases()` 在重启后以"库里仍在的 Mac Tab"为准补申请租约，租约失败只记日志、不删 Tab。
-Mac 侧状态是 `shell-gate-session-lease` 的状态目录（默认 `~/.config/shell-gate/leases/<32位tab-id>`，内记 caffeinate pid 与启动时间，
-目录权限 700，release 时删除；异常退出无 release 时靠 `caffeinate -t 28800` 的 8 小时上限自毁）。
+Mac lease state lives in `~/.config/shell-gate/leases/<32-character-tab-id>` (or the selected XDG directory), recording the caffeinate PID and start time.
+The directory is private (0700); release removes the lease state but retains its lock inode. The last assertion expires within eight hours without renewal. Assertion replacement rechecks the process fingerprint and observes the new idle-sleep assertion before terminating the old one.
+
 进程合法性靠"pid + `lstart` + 命令行指纹"三重比对（`managed_pid()` / `legacy_pid()`），防止 pid 复用误杀。
 
 ## §5 部署与作业索引
@@ -241,6 +251,13 @@ ping 全丢、桥 MAC 表不见其地址，则路由器**未观察到当前家�
 
 ## §7 可执行验证
 
+Renewal regression checks: `go test -race ./internal/server -run 'Test(SessionLease|TerminalLease|MacLease)'`. These exercise confirmed-upgrade renewal, retry, disconnect grace, shutdown cancellation and native macOS assertion replacement across a shortened expiry, including concurrent acquire/renew/release. The native test runs only on macOS and uses an isolated XDG directory.
+
+Validation on 2026-10-26: the full macOS race suite, native shortened-expiry assertion test, Linux amd64 test binaries, Go vet, repository lint and JavaScript tests passed. Release builds compiled for macOS, Linux and Windows on amd64 and arm64; Windows runtime tests were not run. The vulnerability scan found no vulnerable imported packages or reachable symbols; the module-only finding is assessed in [Security](../SECURITY.md#dependency-assessment).
+
+Live acceptance on both deployed gateways used the committed `ef224c7` build and the installed Mac hook. Each temporary tab completed a compressed terminal command round trip. After deliberately ending only its test assertion to simulate expiry, the upgraded connection recreated both idle-sleep and system-sleep protection. Disconnect retained the new lease; explicit API deletion removed the state and its assertion process. Gateway journals showed no renewal errors. Temporary tabs were deleted; read-only database checks confirmed no remaining test rows and all four create/delete audit records included actor, action, target and time. These checks used a short-lived operator-signed diagnostic session and do not constitute a fresh MFA sign-in test; existing authentication configuration was preserved. The native regression tested expiry-boundary behavior with a shortened timeout; a full eight-hour observation and forced host sleep were not performed.
+
+
 1. 门禁侧唤醒/租约/presence 单测（真实测试名，禁止改名后不更新本条）：
 ```bash
 go test -race ./internal/server/ -run 'TestUpstreamWaker(EnsureReady|TimesOutWaitingForReady|CoalescesConcurrentRequests|SuppressesWhenAtHome|WakesWhenAway|FailOpenOnPresenceError|SkipsHomeCheckWhenAlreadyOnline)$' -v
@@ -282,6 +299,7 @@ ps -o pri= -p <web-tab shell pid>            # 期望 31（Interactive 生效）
 
 ## §8 相关域与边界（非目标）
 
+- 原生 WSS 反向隧道（`shell-gate agent`）：替代/兜底易受运营商跨境 UDP 黑洞影响的覆盖网链路，覆盖终端反代、在途唤醒（经中继 agent）、租约（经 Mac agent）与在家检测（经中继 agent）；agent 本身不持防睡断言，醒来靠时钟跳变检测秒级重连。详见 [原生反向隧道设计](design/2026-11-24-native-agent-tunnel.md)。
 - 终端反代：唤醒恢复的是"ttyd 可达"，转发本身（`newTTYDProxy`、握手采样、` countingConn` 字节统计）属反代域；本库只要求"唤醒后必须从门禁验 HTTP 200 与 WS 101"。
 - 工作台前端：`workspace.html` 的机器 pill、按机 Tab 集合、顶栏手势是唤醒的点火源，但渲染细节属前端域。
 - 双边缘部署 backlog：各网关实例到 Mac 的可达差异（白名单、选路）属部署域；家里的 `SHELL_WAKE_HOME_PRESENCE_*` 需各实例配一份。
@@ -325,7 +343,8 @@ ps -o pri= -p <web-tab shell pid>            # 期望 31（Interactive 生效）
 | `wakeCommandTimeout` | 25s | `internal/server/wake.go`（`upstreamWaker` 唤醒命令执行上限） |
 | `wakeReadyTimeout` | 50s | 同上（发包后等 ttyd 恢复上限） |
 | `wakeProbeTimeout` / `wakeProbeInterval` | 1s / 1s | 同上（TCP 探测超时/轮询间隔） |
-| `sessionLeaseCommandTimeout` | 12s | `internal/server/lease.go`（单次 acquire/release 上限） |
+| `sessionLeaseCommandTimeout` | 12s | `internal/server/lease.go`（单次 acquire/renew/release 上限） |
 | `presenceCheckTimeout` | 3s | `internal/server/presence.go`（presence 查询 HTTP 超时；失败即 fail-open） |
+| Renewal interval / refresh threshold | 15 min / 30 min | `internal/server/lease.go` / Mac hook; reuse fresh assertions |
 | `lease_seconds` | 28800（8h） | `deploy/mac/shell-gate-session-lease`（异常退出自毁上限） |
 | `-m 0 -P 30` | 无客户端上限/保活拉长 | `deploy/mac/ttyd-keepalive.sh`（抗外网拥堵秒断；hangup≈37s） |

@@ -72,9 +72,10 @@ func (s *Server) protectRequests(next http.Handler) http.Handler {
 				}
 			}
 		}
+		isAgentTunnel := r.URL.Path == "/api/agent/tunnel"
 		websocket := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 		write := r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions
-		if websocket || write {
+		if (websocket || write) && !isAgentTunnel {
 			origin := r.Header.Get("Origin")
 			if (origin != "" && origin != s.requestOrigin(r)) || (websocket && origin == "") || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 				http.Error(w, "Cross-site request denied", http.StatusForbidden)

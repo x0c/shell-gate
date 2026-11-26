@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.jpg binary
 *.png binary
+internal/server/web/assets/** linguist-generated=true
+web/package-lock.json linguist-generated=true

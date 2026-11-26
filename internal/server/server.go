@@ -4,21 +4,24 @@ import (
 	"context"
 	"crypto/cipher"
 	"crypto/sha256"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
 
 	authkit "github.com/x0c/shell-gate/internal/auth"
 	"github.com/x0c/shell-gate/internal/server/store"
+	"github.com/x0c/shell-gate/internal/tunnel"
 )
 
 //go:embed web/login.html
@@ -33,8 +36,8 @@ var workspaceHTML []byte
 //go:embed web/vendor/external-auth.js
 var externalAuthJS []byte
 
-//go:embed web/security.js
-var securityJS []byte
+//go:embed web/assets
+var frontendAssets embed.FS
 
 //go:embed web/enhance.js
 var enhanceJS []byte
@@ -49,12 +52,13 @@ const authHeaderName = "X-Webauth-User"
 // upstream 是一台可反代的终端主机（ttyd）：每台机器独立持有反代与网络监控，
 // 互不影响--一台机器的探测超时不会拖慢另一台的转发。
 type upstream struct {
-	name   string
-	target *url.URL
-	proxy  TerminalBackend
-	netmon *netMonitor
-	waker  *upstreamWaker
-	leaser *sessionLeaser
+	name      string
+	agentName string
+	target    *url.URL
+	proxy     TerminalBackend
+	netmon    *netMonitor
+	waker     *upstreamWaker
+	leaser    *sessionLeaser
 }
 
 // Server 是通行密钥门禁 + 多 Tab 工作台 + ttyd 反代。
@@ -71,6 +75,7 @@ type Server struct {
 	sessionAudience string
 	store           *store.Store
 	tabs            *tabStore
+	tunnels         *tunnel.Registry
 	httpSrv         *http.Server
 	upstreams       []*upstream // 顺序即配置顺序（展示顺序），第一台是默认机器
 	upstreamByName  map[string]*upstream
@@ -83,28 +88,119 @@ type Server struct {
 	wg              sync.WaitGroup
 }
 
+func upstreamHTTPTarget(u *url.URL) *url.URL {
+	if u != nil && u.Scheme == "agent" {
+		return &url.URL{Scheme: "http", Host: u.Host + ".shellgate.internal"}
+	}
+	return u
+}
+
+func targetDisplay(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	if u.Scheme == "agent" {
+		return u.String()
+	}
+	return u.Host
+}
+
+func makeTunnelDialer(tunnels *tunnel.Registry, agentName, service string, directAllowed bool, timeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
+	direct := (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if agentName != "" && tunnels != nil && tunnels.HasAgent(agentName) {
+			conn, err := tunnels.DialService(ctx, agentName, service)
+			if err == nil {
+				return conn, nil
+			}
+			if !directAllowed || !errors.Is(err, tunnel.ErrAgentOffline) {
+				return nil, err
+			}
+		}
+		if !directAllowed {
+			return nil, tunnel.ErrAgentOffline
+		}
+		return direct(ctx, network, addr)
+	}
+}
+
 // initUpstreams 按配置构建全部上游机器（每台一个反代 + 一个监控器）。
 func (s *Server) initUpstreams() {
 	s.upstreams = make([]*upstream, 0, len(s.cfg.Machines))
 	s.upstreamByName = make(map[string]*upstream, len(s.cfg.Machines))
 	var presence homePresence
 	if s.cfg.WakeHomePresence.URL != "" {
-		presence = newHarborPresenceClient(s.cfg.WakeHomePresence.URL, s.cfg.WakeHomePresence.Token)
+		var presenceDial func(context.Context, string, string) (net.Conn, error)
+		if s.cfg.WakeHomePresence.Agent != "" && s.tunnels != nil {
+			presenceDial = makeTunnelDialer(s.tunnels, s.cfg.WakeHomePresence.Agent, tunnel.ServicePresence, true, presenceCheckTimeout)
+		}
+		presence = newHarborPresenceClientWithDial(s.cfg.WakeHomePresence.URL, s.cfg.WakeHomePresence.Token, presenceDial)
 	}
 	for _, mc := range s.cfg.Machines {
-		u := &upstream{name: mc.Name, target: mc.URL}
-		u.netmon = newNetMonitor(mc.URL, s.cfg.NetmonInterval, s.cfg.probeIdentity())
+		agentName := ""
+		directAllowed := true
+		if mc.URL != nil && mc.URL.Scheme == "agent" {
+			agentName = mc.URL.Host
+			directAllowed = false
+		} else if s.tunnels != nil && s.tunnels.HasToken(mc.Name) {
+			agentName = mc.Name
+		}
+		dialTTYD := makeTunnelDialer(s.tunnels, agentName, tunnel.ServiceTTYD, directAllowed, 10*time.Second)
+
+		u := &upstream{name: mc.Name, agentName: agentName, target: mc.URL}
+		u.netmon = newNetMonitorWithDial(upstreamHTTPTarget(mc.URL), s.cfg.NetmonInterval, s.cfg.probeIdentity(), dialTTYD, targetDisplay(mc.URL))
 		u.netmon.onHealthChange = s.noteUpstreamHealthChanged
 		u.proxy = newTTYDProxy(mc.URL, u.netmon)
-		if mc.WakeCommand != "" {
+		if mc.WakeCommand != "" || mc.WakeAgent != "" {
 			var homeCheck homePresence
 			if presence != nil && s.cfg.suppressWakeWhenHome(mc.Name) {
 				homeCheck = presence
 			}
 			u.waker = newUpstreamWakerLocked(mc.WakeCommand, mc.URL.Host, mc.Name, s.store, homeCheck)
+			wakeDial := makeTunnelDialer(s.tunnels, agentName, tunnel.ServiceTTYD, directAllowed, wakeProbeTimeout)
+			probeTarget := mc.URL.Host
+			u.waker.customProbe = func(ctx context.Context) error {
+				pctx, cancel := context.WithTimeout(ctx, wakeProbeTimeout)
+				defer cancel()
+				c, err := wakeDial(pctx, "tcp", probeTarget)
+				if err != nil {
+					return err
+				}
+				return c.Close()
+			}
+			wakeAgent := mc.WakeAgent
+			wakeCmd := mc.WakeCommand
+			machineName := mc.Name
+			u.waker.customRun = func(ctx context.Context) error {
+				if wakeAgent != "" && s.tunnels != nil && s.tunnels.HasAgent(wakeAgent) {
+					err := s.tunnels.InvokeWake(ctx, wakeAgent, machineName)
+					if err == nil || wakeCmd == "" || !errors.Is(err, tunnel.ErrAgentOffline) {
+						return err
+					}
+				}
+				if wakeCmd == "" {
+					return tunnel.ErrAgentOffline
+				}
+				return runWakeCommand(ctx, wakeCmd)
+			}
 		}
-		if mc.SessionLeaseCommand != "" {
+		if mc.SessionLeaseCommand != "" || mc.LeaseAgent != "" {
 			u.leaser = newSessionLeaser(mc.SessionLeaseCommand)
+			leaseAgent := mc.LeaseAgent
+			leaseCmd := mc.SessionLeaseCommand
+			machineName := mc.Name
+			u.leaser.customRun = func(ctx context.Context, action, tabID string) error {
+				if leaseAgent != "" && s.tunnels != nil && s.tunnels.HasAgent(leaseAgent) {
+					err := s.tunnels.InvokeLease(ctx, leaseAgent, machineName, action, tabID)
+					if err == nil || leaseCmd == "" || !errors.Is(err, tunnel.ErrAgentOffline) {
+						return err
+					}
+				}
+				if leaseCmd == "" {
+					return tunnel.ErrAgentOffline
+				}
+				return runSessionLeaseCommand(ctx, leaseCmd, action, tabID)
+			}
 		}
 		s.upstreams = append(s.upstreams, u)
 		s.upstreamByName[mc.Name] = u
@@ -256,6 +352,10 @@ func New(cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
+	var tunnels *tunnel.Registry
+	if len(cfg.AgentTokens) > 0 {
+		tunnels = tunnel.NewRegistry(cfg.AgentTokens)
+	}
 	s := &Server{
 		cfg:             cfg,
 		verifier:        verifier,
@@ -269,6 +369,7 @@ func New(cfg Config) (*Server, error) {
 		totpCipher:      totpCipher,
 		store:           st,
 		tabs:            tabs,
+		tunnels:         tunnels,
 		ready:           true,
 	}
 	s.initUpstreams()
@@ -287,6 +388,7 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("OPTIONS /api/edge-probe", s.handleEdgeProbe)
 	mux.HandleFunc("GET /api/machines", s.handleMachines)
 	mux.HandleFunc("POST /api/machines/{name}/ready", s.handleMachineReady)
+	mux.HandleFunc("GET "+tunnel.TunnelPath, s.handleAgentTunnel)
 	mux.HandleFunc("POST /api/session", s.handleSession)
 	if s.oidc != nil {
 		mux.HandleFunc("GET /api/sso/login", s.handleSSOLogin)
@@ -319,10 +421,7 @@ func New(cfg Config) (*Server, error) {
 	mux.HandleFunc("GET /api/netmon", s.handleNetmon)
 	mux.HandleFunc("GET /api/netmon/ping", s.handleNetmonPing)
 	mux.HandleFunc("POST /api/netmon/sample", s.handleNetmonSample)
-	mux.HandleFunc("GET /__shellgate/security.js", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = w.Write(securityJS)
-	})
+	mux.HandleFunc("GET /assets/{name}", serveFrontendAsset)
 	mux.HandleFunc("GET /__shellgate/enhance.js", s.handleEnhanceJS)
 	mux.HandleFunc("GET /__shellgate/external-auth.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
@@ -377,8 +476,14 @@ func (s *Server) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	for _, u := range s.upstreams {
+		if u.leaser != nil {
+			u.leaser.shutdown()
+		}
 		u.netmon.stopLoop()
 		u.netmon.closeConnections()
+	}
+	if s.tunnels != nil {
+		s.tunnels.Close()
 	}
 	if s.oidc != nil {
 		s.oidc.http.CloseIdleConnections()
@@ -497,6 +602,15 @@ type machineView struct {
 	FailStreak int    `json:"failStreak"`
 	LastError  string `json:"lastError,omitempty"`
 	Wakeable   bool   `json:"wakeable"`
+	Transport  string `json:"transport,omitempty"`
+}
+
+func (s *Server) handleAgentTunnel(w http.ResponseWriter, r *http.Request) {
+	if s.tunnels == nil {
+		http.NotFound(w, r)
+		return
+	}
+	s.tunnels.HandleUpgrade(w, r)
 }
 
 // handleMachines 返回全部上游机器列表（登录态保护）。
@@ -508,14 +622,19 @@ func (s *Server) handleMachines(w http.ResponseWriter, r *http.Request) {
 	defaultName := s.cfg.DefaultMachineName()
 	out := make([]machineView, 0, len(s.upstreams))
 	for _, u := range s.upstreams {
+		transport := "direct"
+		if u.agentName != "" && s.tunnels != nil && s.tunnels.HasAgent(u.agentName) {
+			transport = "tunnel"
+		}
 		out = append(out, machineView{
 			Name:       u.name,
-			Target:     u.target.Host,
+			Target:     targetDisplay(u.target),
 			Default:    u.name == defaultName,
 			Healthy:    u.netmon.healthy(),
 			FailStreak: u.netmon.failStreak(),
 			LastError:  u.netmon.lastError(),
 			Wakeable:   u.waker != nil,
+			Transport:  transport,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"machines": out})
@@ -616,6 +735,27 @@ func isEmbeddedDocumentRequest(r *http.Request) bool {
 	default:
 		return false
 	}
+}
+
+// serveFrontendAsset serves the Vite-generated, content-hashed React assets.
+func serveFrontendAsset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" || strings.Contains(name, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	body, err := frontendAssets.ReadFile("web/assets/" + name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	contentType := mime.TypeByExtension(path.Ext(name))
+	if contentType == "" {
+		contentType = http.DetectContentType(body)
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	_, _ = w.Write(body)
 }
 
 // handleEnhanceJS 提供终端增强脚本静态资源，同源加载不受 iframe 跨域限制。

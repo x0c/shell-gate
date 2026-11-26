@@ -28,7 +28,11 @@ const (
 	envWakeHomePresenceURL      = "SHELL_WAKE_HOME_PRESENCE_URL"
 	envWakeHomePresenceToken    = "SHELL_WAKE_HOME_PRESENCE_TOKEN"
 	envWakeHomePresenceMachines = "SHELL_WAKE_HOME_PRESENCE_MACHINES"
+	envWakeHomePresenceAgent    = "SHELL_WAKE_HOME_PRESENCE_AGENT"
 	envSessionLeaseCommands     = "SHELL_SESSION_LEASE_COMMANDS"
+	envAgentTokens              = "SHELL_AGENT_TOKENS"
+	envWakeAgentRoutes          = "SHELL_WAKE_AGENT_ROUTES"
+	envLeaseAgentRoutes         = "SHELL_LEASE_AGENT_ROUTES"
 	envCookieName               = "SHELL_COOKIE_NAME"
 	envCookieSecure             = "SHELL_COOKIE_SECURE"
 	envCookieDomain             = "SHELL_COOKIE_DOMAIN"
@@ -55,7 +59,9 @@ type MachineConfig struct {
 	Name                string
 	URL                 *url.URL
 	WakeCommand         string
+	WakeAgent           string
 	SessionLeaseCommand string
+	LeaseAgent          string
 }
 
 // WakeHomePresence 在发网络唤醒前查询「舒适在家」；未配置则功能关闭。
@@ -63,6 +69,7 @@ type WakeHomePresence struct {
 	URL      string
 	Token    string
 	Machines map[string]struct{} // 名单内机器在家时禁止唤醒
+	Agent    string
 }
 
 // Config 描述 shell-gate 运行参数。
@@ -79,6 +86,7 @@ type Config struct {
 	SupabaseURL    string
 	SupabaseAnon   string
 	Machines       []MachineConfig
+	AgentTokens    map[string]string
 	CookieName     string
 	CookieSecure   bool
 	// CookieDomain 生产双入口时设为 shell.example.com，使会话 Cookie 覆盖 apex 与 *.shell.example.com。
@@ -213,9 +221,22 @@ func ConfigFromEnv() (Config, error) {
 	// 多上游：SHELL_TTYD_TARGETS 是逗号分隔的「名称=地址」列表，例如
 	// linux=http://203.0.113.2:7681,tokyo=http://203.0.113.9:7681。
 	// 未配置时回退旧的单值 SHELL_TTYD_URL（机器名 default），单机部署升级零改动。
+	agentTokens, err := parseAgentTokens(os.Getenv(envAgentTokens))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.AgentTokens = agentTokens
+
 	machines, err := parseMachines(os.Getenv(envTTYDTargets), os.Getenv(envTTYDURL))
 	if err != nil {
 		return Config{}, err
+	}
+	for _, mc := range machines {
+		if mc.URL != nil && mc.URL.Scheme == "agent" {
+			if _, ok := cfg.AgentTokens[mc.URL.Host]; !ok {
+				return Config{}, fmt.Errorf("%s references unknown agent %q (configure %s)", envTTYDTargets, mc.URL.Host, envAgentTokens)
+			}
+		}
 	}
 	machines, err = attachWakeCommands(machines, os.Getenv(envWakeCommands))
 	if err != nil {
@@ -224,11 +245,23 @@ func ConfigFromEnv() (Config, error) {
 	if err := validateWakeCommands(machines); err != nil {
 		return Config{}, err
 	}
+	machines, err = attachAgentRoutes(machines, os.Getenv(envWakeAgentRoutes), envWakeAgentRoutes, cfg.AgentTokens, func(m *MachineConfig, agent string) {
+		m.WakeAgent = agent
+	})
+	if err != nil {
+		return Config{}, err
+	}
 	machines, err = attachSessionLeaseCommands(machines, os.Getenv(envSessionLeaseCommands))
 	if err != nil {
 		return Config{}, err
 	}
 	if err := validateSessionLeaseCommands(machines); err != nil {
+		return Config{}, err
+	}
+	machines, err = attachAgentRoutes(machines, os.Getenv(envLeaseAgentRoutes), envLeaseAgentRoutes, cfg.AgentTokens, func(m *MachineConfig, agent string) {
+		m.LeaseAgent = agent
+	})
+	if err != nil {
 		return Config{}, err
 	}
 	homePresence, err := parseWakeHomePresence(
@@ -239,6 +272,15 @@ func ConfigFromEnv() (Config, error) {
 	)
 	if err != nil {
 		return Config{}, err
+	}
+	if presenceAgent := strings.TrimSpace(os.Getenv(envWakeHomePresenceAgent)); presenceAgent != "" {
+		if homePresence.URL == "" {
+			return Config{}, fmt.Errorf("%s requires %s", envWakeHomePresenceAgent, envWakeHomePresenceURL)
+		}
+		if _, ok := cfg.AgentTokens[presenceAgent]; !ok {
+			return Config{}, fmt.Errorf("%s references unknown agent %q", envWakeHomePresenceAgent, presenceAgent)
+		}
+		homePresence.Agent = presenceAgent
 	}
 	cfg.WakeHomePresence = homePresence
 	cfg.Machines = machines
@@ -686,7 +728,7 @@ func parseMachines(targets, ttydURL string) ([]MachineConfig, error) {
 	return out, nil
 }
 
-// parseUpstreamURL 校验反代上游地址：只允许 http/https，必须有 Host，禁止 URL 内嵌用户名密码。
+// parseUpstreamURL 校验反代上游地址：允许 http/https 或 agent://<name>，禁止 URL 内嵌用户名密码。
 // 上游是门禁信任边界内的 ttyd，协议与凭证形态写死，避免 file/unix 等 scheme 或 userinfo 被误配进反代。
 func parseUpstreamURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
@@ -694,8 +736,16 @@ func parseUpstreamURL(raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("invalid upstream URL")
 	}
 	scheme := strings.ToLower(u.Scheme)
+	if scheme == "agent" {
+		if u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || !validMachineName(u.Host) {
+			return nil, fmt.Errorf("agent upstream URL must be agent://<name>")
+		}
+		u.Scheme = "agent"
+		u.Path = ""
+		return u, nil
+	}
 	if scheme != "http" && scheme != "https" {
-		return nil, fmt.Errorf("upstream URL requires http or https")
+		return nil, fmt.Errorf("upstream URL requires http, https or agent")
 	}
 	if u.Host == "" {
 		return nil, fmt.Errorf("upstream URL requires a host")
@@ -708,6 +758,74 @@ func parseUpstreamURL(raw string) (*url.URL, error) {
 	}
 	u.Scheme = scheme
 	return u, nil
+}
+
+func parseAgentTokens(raw string) (map[string]string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	tokens := make(map[string]string)
+	for _, part := range strings.Split(trimmed, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name, tok, ok := strings.Cut(part, "=")
+		name = strings.TrimSpace(name)
+		tok = strings.TrimSpace(tok)
+		if !ok || !validMachineName(name) || len(tok) < 32 || strings.ContainsAny(tok, " \t\r\n") {
+			return nil, fmt.Errorf("%s entry for %q must be name=<32+ char token>", envAgentTokens, name)
+		}
+		if _, dup := tokens[name]; dup {
+			return nil, fmt.Errorf("%s has duplicate agent %q", envAgentTokens, name)
+		}
+		tokens[name] = tok
+	}
+	if len(tokens) == 0 {
+		return nil, fmt.Errorf("%s cannot be empty when set", envAgentTokens)
+	}
+	return tokens, nil
+}
+
+func attachAgentRoutes(machines []MachineConfig, raw, envName string, tokens map[string]string, set func(*MachineConfig, string)) ([]MachineConfig, error) {
+	if strings.TrimSpace(raw) == "" {
+		return machines, nil
+	}
+	out := append([]MachineConfig(nil), machines...)
+	indexes := make(map[string]int, len(out))
+	for i, machine := range out {
+		indexes[machine.Name] = i
+	}
+	seen := make(map[string]struct{})
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		machineName, agentName, ok := strings.Cut(part, "=")
+		machineName = strings.TrimSpace(machineName)
+		agentName = strings.TrimSpace(agentName)
+		if !ok || !validMachineName(machineName) || !validMachineName(agentName) {
+			return nil, fmt.Errorf("%s entry %q must be machine=agent", envName, part)
+		}
+		if _, dup := seen[machineName]; dup {
+			return nil, fmt.Errorf("%s has duplicate machine %q", envName, machineName)
+		}
+		index, exists := indexes[machineName]
+		if !exists {
+			return nil, fmt.Errorf("%s references unknown machine %q", envName, machineName)
+		}
+		if _, ok := tokens[agentName]; !ok {
+			return nil, fmt.Errorf("%s references unknown agent %q", envName, agentName)
+		}
+		seen[machineName] = struct{}{}
+		set(&out[index], agentName)
+	}
+	if len(seen) == 0 {
+		return nil, fmt.Errorf("%s cannot be empty when set", envName)
+	}
+	return out, nil
 }
 
 func validMachineName(name string) bool {

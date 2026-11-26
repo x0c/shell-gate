@@ -10,7 +10,7 @@ if [[ -z "${SSH_ORIGINAL_COMMAND:-}" ]]; then
 fi
 
 read -r kind action tab_id extra <<< "$SSH_ORIGINAL_COMMAND"
-if [[ "$kind" != "lease" || -n "${extra:-}" || ! "$action" =~ ^(acquire|release)$ || ! "$tab_id" =~ ^[0-9a-f]{32}$ ]]; then
+if [[ "$kind" != "lease" || -n "${extra:-}" || ! "$action" =~ ^(acquire|renew|release)$ || ! "$tab_id" =~ ^[0-9a-f]{32}$ ]]; then
   echo "拒绝未授权的桥接请求" >&2
   exit 64
 fi

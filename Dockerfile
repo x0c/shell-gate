@@ -1,8 +1,16 @@
-FROM golang:1.26.10-bookworm AS build
+FROM node:22-bookworm AS web-build
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
+
+FROM golang:1.26.11-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+COPY --from=web-build /src/internal/server/web/ /src/internal/server/web/
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /shell-gate ./cmd/shell-gate
 

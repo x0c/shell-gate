@@ -14,9 +14,20 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: web
+      - run: npm test
+        working-directory: web
+      - run: npm run build
+        working-directory: web
       - run: go test -race ./...
       - run: go vet ./...
-      - run: node --test internal/server/web/login_test.mjs internal/server/web/security_test.mjs internal/server/web/enhance_zoom_test.mjs internal/server/web/enhance_query_frame_test.mjs
+      - run: node --test internal/server/web/enhance_zoom_test.mjs internal/server/web/enhance_query_frame_test.mjs
       - run: python scripts/check-public.py
   security:
     runs-on: ubuntu-latest

@@ -1,0 +1,530 @@
+@import "tailwindcss";
+@import "@x0c/ui/styles.css";
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--input) transparent;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  summary,
+  [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  ::selection {
+    background: var(--brand-soft);
+  }
+}
+
+@layer components {
+  [data-radix-popper-content-wrapper] {
+    z-index: 50 !important;
+  }
+
+  [data-sonner-toaster] {
+    z-index: 100 !important;
+  }
+
+  [data-sonner-toast] {
+    pointer-events: auto;
+  }
+
+  .login-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    align-items: center;
+    gap: 64px;
+    width: min(920px, 100%);
+    min-height: 100svh;
+    margin: 0 auto;
+    padding: 48px 32px;
+  }
+
+  .login-identity {
+    min-width: 0;
+  }
+
+  .login-wordmark {
+    margin: 20px 0 0;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 500;
+    letter-spacing: -0.055em;
+    line-height: 1.1;
+  }
+
+  .login-tagline {
+    margin: 16px 0 0;
+    color: var(--muted-foreground);
+    font-size: 14px;
+  }
+
+  .login-form {
+    display: grid;
+    gap: 16px;
+  }
+
+  .login-input {
+    height: 48px;
+    font-size: 16px;
+  }
+
+  .login-action {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .login-disclosure {
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+
+  .login-disclosure > summary {
+    min-height: 44px;
+    cursor: pointer;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    line-height: 44px;
+    outline-offset: 4px;
+  }
+
+  .edge-shell {
+    display: grid;
+    min-height: 100svh;
+    place-items: center;
+    padding: 32px;
+  }
+
+  .edge-content {
+    display: grid;
+    justify-items: center;
+    gap: 20px;
+    width: min(100%, 380px);
+    text-align: center;
+  }
+
+  .workspace-page {
+    --app-height: 100dvh;
+    --app-offset: 0px;
+    --top-h: 40px;
+    position: fixed;
+    top: var(--app-offset);
+    right: 0;
+    left: 0;
+    width: 100%;
+    height: var(--app-height);
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .workspace-page #root,
+  .workspace-shell {
+    width: 100%;
+    height: var(--app-height);
+  }
+
+  .workspace-shell {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .workspace-top-shell {
+    position: relative;
+    z-index: 40;
+    flex-shrink: 0;
+  }
+
+  .workspace-top {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px;
+    height: var(--top-h);
+    padding: 4px 6px;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+  }
+
+  .workspace-launchers,
+  .workspace-machines,
+  .workspace-rail {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .workspace-machines {
+    padding-right: 6px;
+    border-right: 1px solid var(--border);
+  }
+
+  .workspace-rail {
+    padding-left: 6px;
+    border-left: 1px solid var(--border);
+  }
+
+  .terminal-tabs {
+    display: flex;
+    flex: 1 1 0%;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    height: 100%;
+    padding: 0 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .terminal-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .terminal-tab {
+    display: flex;
+    flex: 0 0 160px;
+    align-items: center;
+    width: 160px;
+    height: 30px;
+    overflow: hidden;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: var(--muted-foreground);
+  }
+
+  .terminal-tab[data-active="true"] {
+    border-color: var(--input);
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+  }
+
+  .terminal-tab-select {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0 4px 0 8px;
+    overflow: hidden;
+    border-radius: calc(var(--radius) - 2px);
+    color: inherit;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: 12px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .terminal-tab-select:focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: -2px;
+  }
+
+  .terminal-stage {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-height: 0;
+    background: var(--background);
+  }
+
+  .terminal-pane {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: var(--background);
+  }
+
+  .workspace-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+  }
+
+  .workspace-empty-content {
+    width: min(100%, 420px);
+  }
+
+  .workspace-empty-title {
+    margin: 0 0 8px;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: 24px;
+    font-weight: 500;
+    letter-spacing: -0.035em;
+  }
+
+  .workspace-empty-copy {
+    margin: 0;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .menu-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: transparent;
+  }
+
+  .network-card {
+    position: fixed;
+    top: calc(var(--app-offset) + var(--top-h) + 8px);
+    right: 8px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    width: min(336px, calc(100vw - 16px));
+    max-height: min(448px, calc(var(--app-height) - var(--top-h) - 24px));
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--popover);
+    box-shadow: var(--shadow-popover);
+  }
+
+  .network-head {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+    min-height: 48px;
+    padding: 6px 8px 6px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .network-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .network-body {
+    overflow-y: auto;
+    padding: 8px 12px 12px;
+    overscroll-behavior: contain;
+  }
+
+  .metric-group {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .metric-group:last-child {
+    border-bottom: 0;
+  }
+
+  .metric-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-height: 28px;
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .metric-subheading {
+    overflow: hidden;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .metric-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .metric-key {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted-foreground);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .metric-value {
+    flex-shrink: 0;
+    max-width: 62%;
+    overflow: hidden;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .metric-note {
+    margin: 6px 0 0;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .metric-good {
+    color: var(--success);
+  }
+
+  .metric-warn {
+    color: var(--warning);
+  }
+
+  .metric-bad {
+    color: var(--destructive);
+  }
+
+  .preset-list {
+    max-height: min(320px, 38svh);
+    overflow-y: auto;
+  }
+
+  .security-content {
+    display: grid;
+    gap: 20px;
+    padding: 20px 24px 24px;
+  }
+
+  .security-heading {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 64px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--popover);
+  }
+
+  .security-qr {
+    display: block;
+    width: min(240px, 100%);
+    height: auto;
+    margin: 0 auto;
+    padding: 16px;
+    background: white;
+    image-rendering: pixelated;
+  }
+
+  .security-codes {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    list-style: none;
+    user-select: text;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-page {
+    --top-h: 52px;
+  }
+
+  .workspace-top {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .desktop-controls {
+    display: none;
+  }
+
+  .terminal-tabs {
+    padding: 0;
+  }
+
+  .terminal-tab {
+    flex-basis: 144px;
+    width: 144px;
+    height: 44px;
+  }
+
+  .terminal-tab-select {
+    padding-left: 8px;
+    font-size: 12px;
+  }
+
+  .network-card {
+    right: 8px;
+  }
+
+  .security-content {
+    padding: 16px;
+  }
+
+  .security-heading {
+    padding: 8px 16px;
+  }
+}
+
+@media (min-width: 761px) {
+  .mobile-control {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .login-shell {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+    width: min(420px, 100%);
+    padding: 32px 20px;
+  }
+
+  .login-wordmark {
+    margin-top: 16px;
+    font-size: 34px;
+  }
+
+  .login-tagline {
+    margin-top: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-page *,
+  .login-page *,
+  .edge-page *,
+  [data-sonner-toaster] * {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}

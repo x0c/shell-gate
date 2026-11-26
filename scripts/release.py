@@ -21,6 +21,8 @@ if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[a-z0-9.]+)?", args.version):
 if subprocess.check_output(["git", "status", "--porcelain"], cwd=root).strip():
     parser.error("commit the releasable source tree first")
 subprocess.run(["python3", "scripts/check-public.py"], cwd=root, check=True)
+subprocess.run(["npm", "ci", "--no-audit", "--no-fund"], cwd=root / "web", check=True)
+subprocess.run(["npm", "run", "build"], cwd=root / "web", check=True)
 commit = subprocess.check_output(["git", "rev-parse", args.source_commit], cwd=root).decode().strip()
 if subprocess.check_output(["git", "rev-parse", commit + "^{tree}"], cwd=root) != subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=root):
     parser.error("source commit must have the same tree as HEAD")

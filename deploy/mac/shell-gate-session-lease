@@ -1,13 +1,16 @@
 #!/bin/bash
-# 仅由受限桥接调用。每个 ShellGate Tab 一个受限的 Mac 系统睡眠租约；不依赖 ttyd
-# WebSocket，因而浏览器后台、断线和刷新都不会提前释放。异常浏览器退出由 8 小时上限兜底。
+# Per-tab sleep protection. Connected terminals renew; disconnects retain the
+# last assertion until its eight-hour expiry. Only explicit deletion releases it.
 set -euo pipefail
+export LC_ALL=C
+umask 077
 
 readonly lease_seconds=28800
+readonly lease_refresh_seconds=1800
 readonly state_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/shell-gate/leases"
 
 usage() {
-  echo "usage: $0 acquire|release <32-char-lowercase-hex-tab-id>" >&2
+  echo "usage: $0 acquire|renew|release <32-char-lowercase-hex-tab-id>" >&2
   exit 64
 }
 
@@ -38,41 +41,74 @@ release() {
     /bin/kill "$pid" || true
   fi
   /bin/rm -f "$state_file"
-  /bin/rmdir "$state_dir" 2>/dev/null || true
+}
+
+# Repeated edges/windows reuse a fresh assertion rather than spawning a process
+# on each heartbeat. ps elapsed time also avoids dependence on locale/date parsing.
+lease_fresh() {
+  /bin/ps -p "$1" -o etime= 2>/dev/null | /usr/bin/awk -F '[-:]' -v limit="$lease_refresh_seconds" '
+    NF == 2 { seconds = $1 * 60 + $2; valid = 1 }
+    NF == 3 { seconds = $1 * 3600 + $2 * 60 + $3; valid = 1 }
+    NF == 4 { seconds = $1 * 86400 + $2 * 3600 + $3 * 60 + $4; valid = 1 }
+    END { exit !(valid && seconds < limit) }'
+}
+
+assertion_ready() {
+  /usr/bin/pmset -g assertions | /usr/bin/awk -v owner="$1(caffeinate):" '
+    $1 == "pid" && $2 == owner && /PreventUserIdleSystemSleep/ { found = 1 }
+    END { exit !found }'
 }
 
 acquire() {
-  local id="$1" state_file="$state_dir/$1" pid started
-  /bin/mkdir -p "$state_dir"
-  /bin/chmod 700 "$state_dir"
+  local id="$1" state_file="$state_dir/$1" pid started old_pid="" old_start="" attempt
+  # A late renewal after explicit release must never resurrect the deleted tab.
+  [[ "$action" != renew || -f "$state_file" ]] || return 0
   if [[ -f "$state_file" ]]; then
     read -r pid started < "$state_file" || true
     if [[ -n "${pid:-}" && -n "${started:-}" ]]; then
-      if managed_pid "$pid" "$started"; then
-        return 0
-      fi
-      if legacy_pid "$pid" "$started"; then
-        /bin/kill "$pid" || true
+      if managed_pid "$pid" "$started" || legacy_pid "$pid" "$started"; then
+        if managed_pid "$pid" "$started" && lease_fresh "$pid"; then
+          return 0
+        fi
+        old_pid="$pid"
+        old_start="$started"
       fi
     fi
-    /bin/rm -f "$state_file"
   fi
   /usr/bin/nohup /usr/bin/caffeinate -is -t "$lease_seconds" >/dev/null 2>&1 &
   pid=$!
   started="$(/bin/ps -p "$pid" -o lstart= 2>/dev/null | /usr/bin/xargs || true)"
-  if [[ -z "$started" ]] || ! managed_pid "$pid" "$started"; then
-    echo "无法创建睡眠租约" >&2
-    exit 1
-  fi
-  (umask 077; printf '%s %s\n' "$pid" "$started" > "$state_file")
+  for ((attempt=0; attempt<10; attempt++)); do
+    if [[ -n "$started" ]] && managed_pid "$pid" "$started" && assertion_ready "$pid"; then
+      # Publish atomically before retiring the old assertion: no unprotected gap.
+      printf '%s %s\n' "$pid" "$started" > "$state_file.$$"
+      /bin/mv -f "$state_file.$$" "$state_file"
+      if [[ -n "$old_pid" ]] && { managed_pid "$old_pid" "$old_start" || legacy_pid "$old_pid" "$old_start"; }; then
+        /bin/kill "$old_pid" || true
+      fi
+      return 0
+    fi
+    /bin/sleep 0.1
+  done
+  if [[ -n "$started" ]] && managed_pid "$pid" "$started"; then /bin/kill "$pid" || true; fi
+  echo "Could not establish sleep assertion; previous lease retained." >&2
+  return 1
 }
 
+locked=false
+if [[ "${1:-}" == --locked ]]; then locked=true; shift; fi
 [[ "$#" -eq 2 ]] || usage
 action="$1"
 id="$2"
 valid_id "$id" || usage
+[[ "$action" =~ ^(acquire|renew|release)$ ]] || usage
+if [[ "$locked" == false ]]; then
+  /bin/mkdir -p "$state_dir"
+  /bin/chmod 700 "$state_dir"
+  exec /usr/bin/lockf -k -t 8 "$state_dir/.$id.lock" /bin/bash "$0" --locked "$action" "$id"
+fi
 case "$action" in
-  acquire) acquire "$id" ;;
+  acquire|renew) acquire "$id" ;;
   release) release "$id" ;;
   *) usage ;;
 esac

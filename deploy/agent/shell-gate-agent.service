@@ -1,0 +1,20 @@
+[Unit]
+Description=ShellGate upstream reverse tunnel agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=shellgate
+Group=shellgate
+EnvironmentFile=/etc/shell-gate-agent.env
+ExecStart=/usr/local/bin/shell-gate agent
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

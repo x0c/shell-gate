@@ -183,6 +183,17 @@ func (s *Server) handleTermProxy(w http.ResponseWriter, r *http.Request, email s
 	}
 	ctx := context.WithValue(r.Context(), proxyUserKey{}, email)
 	ctx = context.WithValue(ctx, proxyCmdKey{}, tab.Command)
+	var stopLease func()
+	if u.leaser != nil && suffix == "ws" && r.Method == http.MethodGet && strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		ctx = context.WithValue(ctx, proxyUpgradeKey{}, func() {
+			stopLease = u.leaser.keepAlive(r.Context(), tabID)
+		})
+		defer func() {
+			if stopLease != nil {
+				stopLease()
+			}
+		}()
+	}
 	rr := r.Clone(ctx)
 	rr.URL.Path = outPath
 	rr.URL.RawPath = ""

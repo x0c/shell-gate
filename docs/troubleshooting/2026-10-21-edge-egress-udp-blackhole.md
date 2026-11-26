@@ -40,6 +40,10 @@ Workspace 现象：某边缘的机器目录里**全部**机器变红（`healthy=
 - Mac 的唤醒/租约/presence 全走中继单路径：中继 overlay 一断，唤醒与租约释放一起失败（`exit status 255` 刷屏），与终端流量同命。
 - 覆盖网无中继回退：直连路径一死就一直死，直到打洞重新成功；本轮 15 分钟以上未自愈。
 
+## 2026-11-24 复发与根治（原生 HTTPS/WSS 反向隧道）
+
+2026-11-19、11-21、11-24（19:55–20:03 CST）再次出现双边缘同时报「上游机器全部不可用(n=2, machines=suzhou,mac)」，且直连 TCP（443/222/223）全程正常、跨境 UDP 回包归零。已实施根治方案：[原生 HTTPS/WSS 反向隧道设计](../design/2026-11-24-native-agent-tunnel.md)（`shell-gate agent`，`coder/websocket` + `hashicorp/yamux` 复用 443 TCP），将终端反代、在家检测、唤醒与租约全部迁至纯 TCP 443 隧道，并保留原 ZeroTier 直连地址与 SSH 钩子作离线自动回退。
+
 ## Limits
 
 - 丢包点未 isolate：需边缘云控制台查 Anti-DDoS/安全组事件，或查家庭光猫在故障时刻是否重拨/更新，二者都需要运维侧配合。

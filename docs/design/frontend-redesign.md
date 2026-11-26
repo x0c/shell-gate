@@ -1,5 +1,21 @@
 # 前端视觉重绘
 
+## Shared UI kit rewrite (2026-11-26)
+
+The owner requested a frontend rewrite using the shared UI system. Migrate the login, edge selection and workspace surfaces to React 19 + TypeScript + Vite with the public, immutable `@x0c/ui@0.3.1` / `@x0c/tokens` distribution. Do not introduce the private `@caozc/brand` package, remote fonts, a browser CDN, an external runtime service or a neighboring-checkout dependency. The Go binary continues to embed the compiled assets; `enhance.js` remains the standalone compatibility script injected into ttyd rather than part of the React application.
+
+Inspected references and reuse boundary:
+
+- `SharedPlatform/web-ui-kit/templates/admin-starter` and `agent-dbctl/web`: reuse the React 19 + Vite + Tailwind v4 single-binary integration and release build path.
+- `@x0c/ui` `Button`, `Input`, `Select`, `DropdownMenu`, `Dialog`, `FormField`, `Notice`, `LoadingButton`, `Panel`, `InsetList`, `Row` and `Toaster`: reuse their public component behavior, semantic tokens, focus handling and portal-based overlays. `AppTopbar`/`AdminShell` do not fit ShellGate's adopted single-line launcher + terminal-tab toolbar, so the workspace keeps its product-specific compact composition instead of adding a sidebar or a second navigation row.
+- `agent-dbctl/internal/webui` and its Dockerfile: reuse immutable hashed-asset serving and the Node → Go build-stage pattern; ShellGate keeps its separate login, edge-pick and workspace HTML entry points and existing authentication routes.
+
+The workspace uses Flat Monochrome semantic colors, compact `h-8` controls, `rounded-md` peers and terminal-content-first density. Keep equal-width terminal tabs, one-line horizontal overflow, direct one-click launchers, narrow-screen launch/more menus, non-modal network diagnostics, account security secret cleanup, all authentication modes and the uncommitted copy corrections already present in `workspace.html` (`Theme`, `Follow selection …)`, accessible `×` delete and the corrected empty state). Login and edge selection retain their adopted fixed dark appearance; workspace `auto`/`light`/`dark` remains the only theme source and continues to broadcast to mounted terminal iframes without reloading them.
+
+Source lives under `web/`; generated HTML and hashed assets under `internal/server/web/` are committed so ordinary Go tests and direct source builds do not need Node. Docker and release builds run the reproducible `npm ci` + typecheck + Vite build path. Existing browser-state regression coverage was migrated from inline-HTML script extraction to executable TypeScript/component checks (Vitest) and real-browser Playwright checks against `ttyd` + the Go gateway. Key integration fixes applied during verification: `[data-radix-popper-content-wrapper]` is raised (`z-index: 50`) above `.terminal-stage` and `.menu-scrim`, mobile `pointerdown` terminal-focus preservation runs in the bubble phase with non-modal menu `onFocusOutside` and guarded `onCloseAutoFocus` focus handoff, `PresetDialog` avoids duplicate close buttons and ignores clicks on `[data-sonner-toaster]` Undo actions, and the Vitest `HTMLIFrameElement.prototype.contentWindow` stub avoids circular parent-window focus loops on unmount. Physical mobile keyboard and biometric passkey behavior remain separate coverage limits.
+
+External research limitation: initial shared-kit selection relied on the named local authoritative source (`SharedPlatform/web-ui-kit`) because the prior session's Tavily lookup failed with HTTP 432. `go.mod` and `Dockerfile` were subsequently updated to Go 1.26.11 (`GO-2026-6859` resolved), leaving 0 reachable vulnerabilities under `govulncheck ./...`.
+
 ## 产品要求
 
 用户要求重绘前端，消除现有界面的 AI 模板感，授权自由设计。覆盖登录页与终端工作台的桌面、手机视觉。保留既有终端、通行密钥、多机器、主题切换与快捷操作行为。

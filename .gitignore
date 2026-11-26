@@ -13,7 +13,7 @@
 node_modules/
 __pycache__/
 *.pyc
-/playwright-report/
-/test-results/
+playwright-report/
+test-results/
 
 .doc-init-*.json

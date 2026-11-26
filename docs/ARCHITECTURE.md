@@ -24,6 +24,7 @@ flowchart LR
 | Durable tabs | `TabRepository` | SQLite and PostgreSQL through `store.Store`; account ownership, explicit errors, stable IDs and atomic audit. |
 | Presets and keys | `store.Store` | Transactional SQL provider chosen once on startup. Keep migrations, initial defaults and audit together. Split additional interfaces only when a second consumer needs them. |
 | Terminal forwarding | `TerminalBackend` / `http.Handler` | Standard Go ttyd reverse proxy; uses server-owned identity/command context, strips cookies/authorization and refuses environment proxies. |
+| Reverse tunnel | `internal/tunnel` + `GET /api/agent/tunnel` | Outbound WSS (`coder/websocket`) + `yamux` multiplexer (`shell-gate agent`) for NAT upstreams; Bearer-authenticated, compression-disabled carrier, named-service dial (`ttyd`/`presence`) and fixed-hook `wake`/`lease` RPCs only. |
 | Wake and sleep lease | `WakeLocker`, lease hooks | Bounded executable hooks with action/ID arguments; no interpretation of browser text as a shell command. Monitoring cannot initiate wake. |
 | Presence policy | Optional HTTP presence adapter | Operator-supplied endpoint and credential; redirects/proxies disabled. Historical wake suppression is fail-open on presence outage and is not an authentication policy. |
 

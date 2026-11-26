@@ -1,8 +1,10 @@
 # shell-gate
 
-Self-hosted browser terminal gateway. Read documents whose described contents are relevant before making decisions or changes. Long-lived product knowledge belongs in `docs/`; do not store credentials, personal machine identifiers or private infrastructure in repository files.
+Self-hosted browser terminal gateway. Long-lived product knowledge belongs in `docs/`; do not store credentials, personal machine identifiers or private infrastructure in repository files.
 
-## Documents
+## Document index
+
+Read documents whose described contents are relevant before making decisions or changes.
 
 - [README.md](README.md): Public quick start and platform support.
 - [README.zh-CN.md](README.zh-CN.md): Complete Simplified Chinese quick start.
@@ -12,13 +14,14 @@ Self-hosted browser terminal gateway. Read documents whose described contents ar
 - [docs/TERMINAL_PROXY_KNOWLEDGE_BASE.md](docs/TERMINAL_PROXY_KNOWLEDGE_BASE.md): Multi-machine registry, ttyd reverse proxy, login-shell command wrapping and upstream hardening.
 - [docs/TAB_PERSISTENCE_KNOWLEDGE_BASE.md](docs/TAB_PERSISTENCE_KNOWLEDGE_BASE.md): Account-owned tab directory, machine resolution, per-machine active-tab restore and reconnect semantics.
 - [docs/WORKSPACE_FRONTEND_KNOWLEDGE_BASE.md](docs/WORKSPACE_FRONTEND_KNOWLEDGE_BASE.md): Workspace shell and enhance.js modules: tight fit, theme broadcast, keyboard ownership, clipboard and reconnect guards.
-- [docs/MAC_WAKE_LEASE_KNOWLEDGE_BASE.md](docs/MAC_WAKE_LEASE_KNOWLEDGE_BASE.md): Mac on-demand wake, at-home suppression, sleep leases and compressed ttyd build.
+- [docs/MAC_WAKE_LEASE_KNOWLEDGE_BASE.md](docs/MAC_WAKE_LEASE_KNOWLEDGE_BASE.md): Mac on-demand wake, at-home suppression, renewable tab leases, disconnect grace and compressed ttyd build.
 - [docs/design/standalone-open-source.md](docs/design/standalone-open-source.md): Standalone requirements, references and release acceptance.
 - [docs/design/frontend-redesign.md](docs/design/frontend-redesign.md): Visual direction and compact workspace layout.
 - [docs/design/2026-08-24-multi-upstream.md](docs/design/2026-08-24-multi-upstream.md): Machine selection and per-machine tab restoration.
 - [docs/design/2026-09-07-tab-server-persistence.md](docs/design/2026-09-07-tab-server-persistence.md): Account-owned persistent tabs and reconnect semantics.
 - [docs/design/2026-09-08-dual-edge-shared-store.md](docs/design/2026-09-08-dual-edge-shared-store.md): Optional multi-edge routing and shared PostgreSQL.
 - [docs/design/2026-09-09-wake-suppress-when-home.md](docs/design/2026-09-09-wake-suppress-when-home.md): Optional presence adapter and wake suppression.
+- [docs/design/2026-11-24-native-agent-tunnel.md](docs/design/2026-11-24-native-agent-tunnel.md): Native HTTPS/WSS reverse tunnel (`shell-gate agent`) over TCP 443 for terminal, wake, lease and presence traffic.
 - [docs/MAC_UPSTREAM_GUIDE.md](docs/MAC_UPSTREAM_GUIDE.md): Mac terminal build, LaunchAgent, firewall and optional wake/lease setup.
 - [docs/troubleshooting/TROUBLESHOOTING_INDEX.md](docs/troubleshooting/TROUBLESHOOTING_INDEX.md): Verified terminal and transport troubleshooting, including Mac wake with home-LAN ARP checks.
 - [SECURITY.md](SECURITY.md): Threat model, dependency assessment and private reporting.

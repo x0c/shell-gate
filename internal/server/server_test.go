@@ -229,8 +229,8 @@ func TestRootServesWorkspace(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("已登录应返回工作台，得到 %d", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), `id="launchers"`) {
-		t.Fatal("工作台 HTML 缺少顶栏快捷Launch区")
+	if !strings.Contains(w.Body.String(), `src="/assets/workspace-`) {
+		t.Fatal("工作台 HTML 缺少 React 工作台资源入口")
 	}
 	if got := w.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") {
 		t.Fatalf("工作台应禁止被 iframe 嵌套，CSP=%q", got)
@@ -271,11 +271,15 @@ func TestLoginDeniesFraming(t *testing.T) {
 }
 
 func TestWorkspaceHTMLGuardsAgainstNestedShellAndInvalidTabPath(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("web", "workspace.html"))
-	if err != nil {
-		t.Fatal(err)
+	var source strings.Builder
+	for _, name := range []string{"workspace.tsx", filepath.Join("components", "WorkspacePage.tsx"), filepath.Join("lib", "theme.ts")} {
+		body, err := os.ReadFile(filepath.Join("..", "..", "web", "src", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		source.Write(body)
 	}
-	html := string(body)
+	html := source.String()
 	for _, want := range []string{
 		`window.top !== window.self`,
 		`workspace must not run inside an iframe`,
@@ -285,6 +289,34 @@ func TestWorkspaceHTMLGuardsAgainstNestedShellAndInvalidTabPath(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Fatalf("双层顶栏守卫缺失: %q", want)
 		}
+	}
+}
+
+func TestEmbeddedFrontendAssetIsServedImmutable(t *testing.T) {
+	page, err := os.ReadFile(filepath.Join("web", "workspace.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	match := regexp.MustCompile(`src="/assets/([^"]+\.js)"`).FindSubmatch(page)
+	if len(match) != 2 {
+		t.Fatal("工作台 HTML 缺少带哈希的脚本资源")
+	}
+	name := string(match[1])
+	req := httptest.NewRequest(http.MethodGet, "/assets/"+name, nil)
+	req.SetPathValue("name", name)
+	w := httptest.NewRecorder()
+	serveFrontendAsset(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("内嵌前端资源应返回 200，得到 %d", w.Code)
+	}
+	if !strings.Contains(w.Header().Get("Content-Type"), "javascript") {
+		t.Fatalf("脚本 Content-Type 错误: %q", w.Header().Get("Content-Type"))
+	}
+	if got := w.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
+		t.Fatalf("带哈希资源应长期缓存: %q", got)
+	}
+	if w.Body.Len() == 0 {
+		t.Fatal("内嵌脚本不得为空")
 	}
 }
 
@@ -518,7 +550,7 @@ func TestRootApexServesEdgePick(t *testing.T) {
 		t.Fatalf("apex 已登录应返回选路页，得到 %d", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "正在选择更快的入口") || strings.Contains(body, `id="launchers"`) {
+	if !strings.Contains(body, "/assets/edge-pick-") || strings.Contains(body, `/assets/workspace-`) {
 		t.Fatal("apex 应出选路页而非工作台")
 	}
 }
@@ -531,7 +563,7 @@ func TestRootEdgeServesWorkspace(t *testing.T) {
 	req.Host = "hk.shell.example.com"
 	w := httptest.NewRecorder()
 	s.handleRoot(w, req)
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `id="launchers"`) {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `/assets/workspace-`) {
 		t.Fatalf("边缘应返回工作台，code=%d", w.Code)
 	}
 }
@@ -644,12 +676,11 @@ func TestInjectEnhanceScriptSkipsNonHTML(t *testing.T) {
 }
 
 func TestRootServesWorkspaceWithCanvasRendererQuery(t *testing.T) {
-	s := newTestServer(t)
-	token := signToken(t, "operator@example.com")
-	req := withSession(httptest.NewRequest(http.MethodGet, "/", nil), token)
-	w := httptest.NewRecorder()
-	s.handleRoot(w, req)
-	body := w.Body.String()
+	bodyBytes, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "theme.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
 	// 2026-08-31：默认 canvas，避开 ttyd 1.7.7 / xterm 5.4.0 WebGL 图集把
 	// CJK 画丢的问题。URL 查询参数优先于 ttyd Launch参数。禁止为了 44ms 绘制
 	// 延迟把默认改回 webgl（见 docs/troubleshooting/2026-08-20-tui-display-corruption.md）。
@@ -666,19 +697,18 @@ func TestRootServesWorkspaceWithTranslucentSelectionTheme(t *testing.T) {
 	// 不透明色会整块盖住底下的文字（xterm.js 官方 issue #2737/#2808 确认的已知
 	// 行为，2026-07-20 真机复现）；iframe 必须带一个带 alpha 通道的
 	// selectionBackground，纯色（不带 8 位十六进制透明度）视为回归。
-	s := newTestServer(t)
-	token := signToken(t, "operator@example.com")
-	req := withSession(httptest.NewRequest(http.MethodGet, "/", nil), token)
-	w := httptest.NewRecorder()
-	s.handleRoot(w, req)
-	body := w.Body.String()
+	bodyBytes, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "theme.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
 	if !strings.Contains(body, "selectionBackground") {
 		t.Fatal("工作台 HTML 缺少 iframe 的 selectionBackground 主题覆盖，canvas 渲染器下拖选会整块盖住文字")
 	}
 	// theme 值在浏览器里经 encodeURIComponent(JSON.stringify(...)) 运行时拼接，
 	// 静态 HTML 源码里看到的是字面量，直接核对字面量里的颜色带 8 位十六进制
 	// （含 alpha 通道），不是 6 位纯色。
-	if !regexp.MustCompile(`selectionBackground"?\s*:\s*"#[0-9A-Fa-f]{8}"`).MatchString(body) {
+	if !regexp.MustCompile(`selectionBackground["']?\s*:\s*["']#[0-9A-Fa-f]{8}["']`).MatchString(body) {
 		t.Fatal("selectionBackground 必须是带 8 位十六进制（含 alpha 通道）的半透明色，纯色会盖住文字")
 	}
 }
@@ -687,14 +717,13 @@ func TestRootServesWorkspaceWithBothTerminalColorSchemes(t *testing.T) {
 	// 深LightSystem/手动切换（2026-08 上线）：页面必须同时带深、浅两套完整的
 	// xterm Terminal配色常量，防止后续改动误删其中一套——那样切换要么没效果（缺Light），
 	// 要么切回Dark也回不去原来的观感（缺Dark兜底）。
-	s := newTestServer(t)
-	token := signToken(t, "operator@example.com")
-	req := withSession(httptest.NewRequest(http.MethodGet, "/", nil), token)
-	w := httptest.NewRecorder()
-	s.handleRoot(w, req)
-	body := w.Body.String()
+	bodyBytes, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "theme.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(bodyBytes)
 
-	if !strings.Contains(body, "TERM_THEME_DARK") || !strings.Contains(body, "TERM_THEME_LIGHT") {
+	if !strings.Contains(body, "TERMINAL_THEME_DARK") || !strings.Contains(body, "TERMINAL_THEME_LIGHT") {
 		t.Fatal("工作台 HTML 缺少Dark/LightTerminal配色常量之一")
 	}
 	// Light配色的底/字/强调三个关键色，任一缺失都说明Light配色被误删或改坏。
@@ -705,7 +734,7 @@ func TestRootServesWorkspaceWithBothTerminalColorSchemes(t *testing.T) {
 	}
 	// 所有 selectionBackground 字面量（Dark一份、Light一份）都必须带 8 位十六进制
 	// alpha 通道，不能有任何一份退化成不带透明度的纯色。
-	matches := regexp.MustCompile(`selectionBackground"?\s*:\s*"#([0-9A-Fa-f]+)"`).FindAllStringSubmatch(body, -1)
+	matches := regexp.MustCompile(`selectionBackground["']?\s*:\s*["']#([0-9A-Fa-f]+)["']`).FindAllStringSubmatch(body, -1)
 	if len(matches) < 2 {
 		t.Fatalf("期望至少 2 处 selectionBackground（Dark + Light），实际找到 %d 处", len(matches))
 	}
@@ -869,6 +898,11 @@ func TestWorkspaceHTMLMobileViewport(t *testing.T) {
 	w := httptest.NewRecorder()
 	s.handleRoot(w, req)
 	body := w.Body.String()
+	viewport, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "lib", "viewport.ts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body += string(viewport)
 	if !strings.Contains(body, "interactive-widget=resizes-content") {
 		t.Fatal("工作台缺少 interactive-widget=resizes-content，Android/Chrome 键盘弹起时布局不会变矮")
 	}
@@ -884,7 +918,7 @@ func TestWorkspaceHTMLMobileViewport(t *testing.T) {
 	if !strings.Contains(body, "preserveWorkspaceTerminalFocus") {
 		t.Fatal("顶栏等非输入控件不得抢走Terminal焦点把键盘收掉")
 	}
-	if !strings.Contains(body, `__shellgate: "keyboard"`) {
+	if !strings.Contains(body, `__shellgate: 'keyboard'`) {
 		t.Fatal("父页必须把键盘开合告诉Terminal iframe")
 	}
 	if !strings.Contains(body, "focusActiveTerminal") {
@@ -1387,98 +1421,51 @@ func TestTabStoreCountFor(t *testing.T) {
 }
 
 func TestWorkspaceHTMLHasNetmonEntryAndResponsiveTopBar(t *testing.T) {
-	s := newTestServer(t)
-	token := signToken(t, "operator@example.com")
-	req := withSession(httptest.NewRequest(http.MethodGet, "/", nil), token)
-	w := httptest.NewRecorder()
-	s.handleRoot(w, req)
-	body := w.Body.String()
+	read := func(name string) string {
+		t.Helper()
+		body, err := os.ReadFile(filepath.Join("..", "..", "web", "src", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	workspace := read(filepath.Join("components", "WorkspacePage.tsx"))
+	network := read(filepath.Join("components", "NetworkPanel.tsx"))
+	monitor := read(filepath.Join("lib", "netmon.ts"))
+	styles := read("index.css")
+	state := read(filepath.Join("lib", "workspace-state.ts"))
 
-	for _, needle := range []string{`id="btnNet"`, `id="netCard"`, "/api/netmon/ping", "/api/netmon/sample"} {
-		if !strings.Contains(body, needle) {
-			t.Fatalf("工作台缺少Network diagnostics入口/采样 %q", needle)
+	for _, needle := range []string{`id="btnNet"`, `id="btnLaunchMenu"`, `id="btnMoreMenu"`, `className="menu-scrim"`, "/api/machines/", "/ready", "waking it if asleep", "DropdownMenuContent"} {
+		if !strings.Contains(workspace, needle) {
+			t.Fatalf("工作台缺少顶栏/唤醒/门户菜单守卫 %q", needle)
 		}
 	}
-	// 监控小窗必须是常驻悬浮的，不能做成弹窗：开着的时候Terminal要照常能用。
-	if !strings.Contains(body, "class=\"netcard\"") {
-		t.Fatal("Network diagnostics应是悬浮小窗，不是模态弹窗")
-	}
-	if strings.Contains(body, `data-close="netOverlay"`) {
-		t.Fatal("Network diagnostics不得再走模态弹窗那套遮罩Close")
-	}
-	if !strings.Contains(body, ".netcard {\n      position: fixed;") {
-		t.Fatal("监控小窗应固定悬浮，不占据文档流")
-	}
-	if !strings.Contains(body, "max-height: min(28rem,") {
-		t.Fatal("监控小窗必须限制高度，不能大面积遮住Terminal")
-	}
-	// 常驻小窗一夺焦点，手机上软键盘就收了。
-	if !strings.Contains(body, `getElementById("netCardHead").addEventListener("pointerdown"`) {
-		t.Fatal("监控小窗标题栏必须不夺Terminal焦点")
-	}
-	if !strings.Contains(body, `getElementById("btnNetCollapse").textContent = "－"`) {
-		t.Fatal("监控小窗重新打开时必须同步展开图标")
-	}
-	// 窄屏收纳：左右两个菜单入口 + 媒体查询隐藏平铺按钮，否则手机上顶栏挤爆。
-	for _, needle := range []string{`id="btnLaunchMenu"`, `id="btnMoreMenu"`, `id="launchMenu"`, `id="moreMenu"`, "@media (max-width: 760px)"} {
-		if !strings.Contains(body, needle) {
-			t.Fatalf("工作台缺少窄屏顶栏收纳 %q", needle)
+	for _, needle := range []string{"/api/netmon/ping", "/api/netmon/sample", "event.origin !== window.location.origin"} {
+		if !strings.Contains(monitor, needle) {
+			t.Fatalf("网络监控缺少采样或同源校验 %q", needle)
 		}
 	}
-	if !strings.Contains(body, ".machines, .launchers, .rail { display: none; }") {
-		t.Fatal("窄屏下必须隐藏平铺的Machine/Launch器/工具轨，改走左右菜单")
+	if !strings.Contains(network, `className="network-card"`) || strings.Contains(network, "Dialog") {
+		t.Fatal("Network diagnostics 应是独立悬浮小窗，不是模态弹窗")
 	}
-	// 单行顶栏：Tab 横向滚动时不得把 overflow-y 带成 auto，否则滚动条会把顶栏撑高Jitter。
-	if !strings.Contains(body, "overflow-y: hidden") {
-		t.Fatal("顶栏 Tab 区必须 overflow-y:hidden，防止新开 Tab 后高度Jitter")
+	if !strings.Contains(network, "onPointerDown={(event) => event.preventDefault()}") {
+		t.Fatal("监控小窗标题栏必须不夺 Terminal 焦点")
 	}
-	if !strings.Contains(body, "flex: 1 1 0%") {
-		t.Fatal("顶栏 Tab 区须用 flex-basis 0%，才能把余量让给横向滚动而不是撑高整行")
-	}
-	// 菜单遮罩不可少：点Terminal iframe 的事件不会冒泡到父页，没有它菜单关不掉。
-	if !strings.Contains(body, `id="menuScrim"`) {
-		t.Fatal("菜单缺少遮罩层，点 iframe 时无法收起菜单")
-	}
-	if !strings.Contains(body, `/api/machines/`) || !strings.Contains(body, `/ready`) ||
-		!strings.Contains(body, `waking it if asleep`) {
-		t.Fatal("工作台缺少 Mac 按需唤醒入口或等待Status")
-	}
-	// 菜单必须在 overflow:hidden 的 .top 行外：行内裁切会让窄屏 ☰/⋯ 下拉看不见也点不到。
-	if !strings.Contains(body, `id="topShell"`) || !strings.Contains(body, ".top-shell.menu-open") {
-		t.Fatal("窄屏菜单须挂在 .top-shell 上抬层，不能只靠 .top")
-	}
-	if strings.Contains(body, ".top.menu-open") {
-		t.Fatal("menu-open 不得再挂在 overflow:hidden 的 .top 上")
-	}
-	topIdx := strings.Index(body, `<header class="top">`)
-	topEnd := strings.Index(body[topIdx:], `</header>`)
-	if topIdx < 0 || topEnd < 0 {
-		t.Fatal("工作台缺少顶栏 header")
-	}
-	headerChunk := body[topIdx : topIdx+topEnd]
-	if strings.Contains(headerChunk, `id="launchMenu"`) || strings.Contains(headerChunk, `id="moreMenu"`) {
-		t.Fatal("launchMenu/moreMenu 不得放在 overflow:hidden 的 .top 内，否则会被裁掉")
-	}
-	if !strings.Contains(body, "e.origin !== location.origin") {
-		t.Fatal("接收 iframe 上报必须校验同源，否则任意页面都能伪造监控数据")
-	}
-	// 多机器：切换机器 pill 必须过滤 Tab 集合，其它机器的会话后台保活；
-	// 切回去优先恢复该机上次激活的 Tab，而不是一律落到最近一个。
-	for _, needle := range []string{
-		"function tabsOnMachine",
-		"tabsOnMachine(selectedMachine)",
-		"切换机器 = 切换 Tab 集合",
-		"lastTabOnMachine",
-		"activeByMachine",
-		"rememberedTabOnMachine",
-		"优先该机上次激活的 Tab",
-	} {
-		if !strings.Contains(body, needle) {
-			t.Fatalf("工作台缺少「切换Machine跟 Tab 集合」%q", needle)
+	for _, needle := range []string{".network-card {", "position: fixed", "max-height: min(448px", "@media (max-width: 760px)", ".desktop-controls", "overflow-y: hidden", "flex: 1 1 0%", ".menu-scrim"} {
+		if !strings.Contains(styles, needle) {
+			t.Fatalf("工作台响应式/悬浮布局守卫缺失 %q", needle)
 		}
 	}
-	if strings.Contains(body, "machdot") {
-		t.Fatal("Tab 条已按Machine过滤后不应再渲染Machine色点徽标")
+	for _, needle := range []string{"function tabsOnMachine", "lastTabOnMachine", "rememberedTabOnMachine"} {
+		if !strings.Contains(state, needle) {
+			t.Fatalf("工作台缺少按机器恢复 Tab 守卫 %q", needle)
+		}
+	}
+	if !strings.Contains(workspace, "activeByMachine") {
+		t.Fatal("工作台缺少按机器记忆激活 Tab 的状态")
+	}
+	if strings.Contains(workspace, "machdot") {
+		t.Fatal("Tab 条已按 Machine 过滤后不应再渲染 Machine 色点徽标")
 	}
 }
 
@@ -1622,12 +1609,12 @@ func TestEnhanceJSSelfRepairsDisplayCorruption(t *testing.T) {
 	}
 
 	// 父页「Repair display」菜单入口与广播必须同时在，只改一侧等于入口断了。
-	token := signToken(t, "operator@example.com")
-	req2 := withSession(httptest.NewRequest(http.MethodGet, "/", nil), token)
-	w2 := httptest.NewRecorder()
-	s.handleRoot(w2, req2)
-	page := w2.Body.String()
-	for _, needle := range []string{`data-act="repair"`, "Repair display", "repair-display"} {
+	pageBody, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "components", "WorkspacePage.tsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBody)
+	for _, needle := range []string{"onSelect={repairTerminals}", "Repair display", "repair-display"} {
 		if !strings.Contains(page, needle) {
 			t.Fatalf("工作台 HTML 缺少显示修复入口 %q", needle)
 		}
@@ -1994,25 +1981,18 @@ func TestMacTabLeaseSurvivesDisconnectUntilExplicitClose(t *testing.T) {
 }
 
 func TestWorkspaceRefreshRestoresExistingTabsWithoutOpeningAnother(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("web", "workspace.html"))
+	body, err := os.ReadFile(filepath.Join("..", "..", "web", "src", "components", "WorkspacePage.tsx"))
 	if err != nil {
 		t.Fatalf("读取工作台页面失败: %v", err)
 	}
 	html := string(body)
 	for _, want := range []string{
-		`const TAB_STATE_KEY = "shellgate_tabs_state";`,
-		`async function restoreTabsAfterRefresh()`,
-		`const data = await api("/api/tabs");`,
-		`tabs = (data.tabs || []).map((tab) => ({`,
-		`if (!tabs.length) return openTab({ title: "shell" });`,
-		`// 仅恢复本浏览器窗口此前打开的那组 Tab`,
+		`const TAB_STATE_KEY = 'shellgate_tabs_state'`,
+		"workspaceAPI<{ tabs?: TerminalTab[] }>('/api/tabs')",
+		"validActiveByMachine(restored, saved?.activeByMachine)",
+		"if (serverTabs.length === 0)",
+		"await openTab({ title: 'shell' })",
 	} {
-		if strings.HasPrefix(want, "//") {
-			if strings.Contains(html, want) {
-				t.Fatalf("不得再按本窗口临时Status过滤账号 Tab: %q", want)
-			}
-			continue
-		}
 		if !strings.Contains(html, want) {
 			t.Fatalf("账号级 Tab 恢复守卫缺失: %q", want)
 		}

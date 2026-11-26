@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestSessionLeaserPassesFixedActionAndTabID(t *testing.T) {
@@ -26,6 +28,60 @@ func TestSessionLeaserPassesFixedActionAndTabID(t *testing.T) {
 	if gotAction != "release" {
 		t.Fatalf("释放动作未透传: %q", gotAction)
 	}
+}
+
+func TestSessionLeaseRenewalRetriesAndStopsWithoutRelease(t *testing.T) {
+	l := newSessionLeaser("/lease")
+	l.renewInterval = time.Millisecond
+	t.Cleanup(l.shutdown)
+	calls := make(chan string, 32)
+	var attempts atomic.Int32
+	l.run = func(_ context.Context, _, action, _ string) error {
+		calls <- action
+		if attempts.Add(1) == 1 {
+			return errors.New("temporary relay outage")
+		}
+		return nil
+	}
+	stop := l.keepAlive(context.Background(), "0123456789abcdef0123456789abcdef")
+	for range 3 {
+		select {
+		case action := <-calls:
+			if action != "renew" {
+				t.Fatalf("connection maintenance used %q instead of renew", action)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("connected lease was not renewed after a transient failure")
+		}
+	}
+	stop()
+	l.shutdown()
+	before := attempts.Load()
+	l.keepAlive(context.Background(), "0123456789abcdef0123456789abcdef")()
+	if attempts.Load() != before {
+		t.Fatal("a closed lease manager accepted another connection")
+	}
+}
+
+func TestSessionLeaseShutdownCancelsInFlightRenewal(t *testing.T) {
+	l := newSessionLeaser("/lease")
+	started := make(chan struct{})
+	l.run = func(ctx context.Context, _, action, _ string) error {
+		if action != "renew" {
+			t.Errorf("unexpected lease action %q", action)
+		}
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	stop := l.keepAlive(context.Background(), "0123456789abcdef0123456789abcdef")
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("renewal did not start")
+	}
+	l.shutdown()
+	stop()
 }
 
 func TestSessionLeaserRejectsInvalidTabIDWithoutExecuting(t *testing.T) {
